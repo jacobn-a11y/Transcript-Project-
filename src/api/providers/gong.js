@@ -12,7 +12,9 @@ class GongProvider extends BaseProvider {
   }
 
   getRateLimit() {
-    return 3; // 3 requests per second
+    // Gong documents ~10,000 requests/day. To be safe we use ~1 req/sec
+    // which equals ~3600/hour, well under the daily cap.
+    return 1;
   }
 
   async _request(method, path, data = null, params = null) {
@@ -30,11 +32,9 @@ class GongProvider extends BaseProvider {
   }
 
   async testConnection() {
-    const data = await this._request('get', '/users', null, {
-      fromDateTime: '2020-01-01T00:00:00Z',
-      toDateTime: new Date().toISOString(),
-    });
-    return { success: true, message: `Connected. Found users.` };
+    // GET /v2/users does not require date params — just a simple auth check
+    await this._request('get', '/users');
+    return { success: true, message: 'Connected to Gong.' };
   }
 
   /**
@@ -106,7 +106,8 @@ class GongProvider extends BaseProvider {
         }
       }
 
-      cursor = data.records && data.records.cursor ? data.records.cursor : null;
+      // Gong returns cursor at data.records.cursor
+      cursor = (data.records && data.records.cursor) || data.cursor || null;
     } while (cursor);
 
     // If no CRM accounts found, try the CRM objects endpoint
@@ -173,7 +174,7 @@ class GongProvider extends BaseProvider {
         }
       }
 
-      cursor = data.records && data.records.cursor ? data.records.cursor : null;
+      cursor = (data.records && data.records.cursor) || data.cursor || null;
     } while (cursor);
 
     return calls;

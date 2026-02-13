@@ -1,41 +1,57 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 
 const SESSIONS_DIR = path.join(__dirname, '..', '..', 'sessions');
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Session Manager
  *
  * Handles pause/resume of transcript export projects.
  * Saves state to disk so work is never lost even if the API limit resets.
+ * Uses atomic writes (write-to-tmp + rename) and an async lock per session
+ * to prevent race conditions between concurrent readers/writers.
  */
 class SessionManager {
   constructor() {
+    this._locks = new Map(); // sessionId -> Promise chain for serialized writes
     if (!fs.existsSync(SESSIONS_DIR)) {
       fs.mkdirSync(SESSIONS_DIR, { recursive: true });
     }
   }
 
-  /**
-   * Create a new session.
-   */
+  _validateId(sessionId) {
+    if (!sessionId || !UUID_RE.test(sessionId)) {
+      throw new Error(`Invalid session ID: ${sessionId}`);
+    }
+  }
+
+  /** Serialize all writes to a given session through a promise chain. */
+  _withLock(sessionId, fn) {
+    const prev = this._locks.get(sessionId) || Promise.resolve();
+    const next = prev.then(fn, fn); // run fn even if prev rejected
+    this._locks.set(sessionId, next);
+    return next;
+  }
+
   create(options) {
     const session = {
       id: uuidv4(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      status: 'active', // active | paused | completed | error
-      projectName: options.projectName || 'Untitled Project',
+      status: 'active',
+      projectName: String(options.projectName || 'Untitled Project'),
       providers: options.providers || [],
       selectedAccounts: options.selectedAccounts || [],
-      primarySchema: options.primarySchema || 'gong', // gong | grain
+      primarySchema: options.primarySchema || 'gong',
       progress: {
-        phase: 'init', // init | fetching_calls | fetching_details | generating | done
+        phase: 'init',
         totalCalls: 0,
         completedCalls: 0,
-        callsList: [],       // List of { id, source, status }
-        completedDetails: [], // Full call details already fetched
+        callsList: [],
+        completedDetails: [],
       },
       error: null,
     };
@@ -44,10 +60,8 @@ class SessionManager {
     return session;
   }
 
-  /**
-   * Load an existing session.
-   */
   load(sessionId) {
+    this._validateId(sessionId);
     const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
     if (!fs.existsSync(filePath)) {
       throw new Error(`Session ${sessionId} not found`);
@@ -55,16 +69,18 @@ class SessionManager {
     return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
   }
 
-  /**
-   * List all sessions.
-   */
   listAll() {
     if (!fs.existsSync(SESSIONS_DIR)) return [];
     return fs.readdirSync(SESSIONS_DIR)
       .filter(f => f.endsWith('.json'))
       .map(f => {
         try {
-          return JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf-8'));
+          const data = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf-8'));
+          // Return a summary without the large completedDetails array
+          return {
+            ...data,
+            progress: { ...data.progress, completedDetails: undefined },
+          };
         } catch {
           return null;
         }
@@ -73,49 +89,49 @@ class SessionManager {
       .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }
 
-  /**
-   * Update session state.
-   */
   update(sessionId, updates) {
-    const session = this.load(sessionId);
-    Object.assign(session, updates, { updatedAt: new Date().toISOString() });
-    this._save(session);
-    return session;
+    this._validateId(sessionId);
+    return this._withLock(sessionId, () => {
+      const session = this.load(sessionId);
+      // Only allow safe fields to be overwritten
+      const safeKeys = ['status', 'error', 'result', 'updatedAt'];
+      for (const key of safeKeys) {
+        if (key in updates) session[key] = updates[key];
+      }
+      session.updatedAt = new Date().toISOString();
+      this._save(session);
+      return session;
+    });
   }
 
-  /**
-   * Update progress within a session.
-   */
   updateProgress(sessionId, progressUpdates) {
-    const session = this.load(sessionId);
-    Object.assign(session.progress, progressUpdates);
-    session.updatedAt = new Date().toISOString();
-    this._save(session);
-    return session;
+    this._validateId(sessionId);
+    return this._withLock(sessionId, () => {
+      const session = this.load(sessionId);
+      Object.assign(session.progress, progressUpdates);
+      session.updatedAt = new Date().toISOString();
+      this._save(session);
+      return session;
+    });
   }
 
-  /**
-   * Mark a call as completed and store its detail data.
-   */
   markCallCompleted(sessionId, callId, callDetail) {
-    const session = this.load(sessionId);
+    this._validateId(sessionId);
+    return this._withLock(sessionId, () => {
+      const session = this.load(sessionId);
 
-    // Update call status in the list
-    const callEntry = session.progress.callsList.find(c => c.id === callId);
-    if (callEntry) callEntry.status = 'completed';
+      const callEntry = session.progress.callsList.find(c => c.id === callId);
+      if (callEntry) callEntry.status = 'completed';
 
-    // Store the detail
-    session.progress.completedDetails.push(callDetail);
-    session.progress.completedCalls = session.progress.completedDetails.length;
-    session.updatedAt = new Date().toISOString();
+      session.progress.completedDetails.push(callDetail);
+      session.progress.completedCalls = session.progress.completedDetails.length;
+      session.updatedAt = new Date().toISOString();
 
-    this._save(session);
-    return session;
+      this._save(session);
+      return session;
+    });
   }
 
-  /**
-   * Pause a session (e.g., when API limits are hit).
-   */
   pause(sessionId, reason) {
     return this.update(sessionId, {
       status: 'paused',
@@ -123,9 +139,6 @@ class SessionManager {
     });
   }
 
-  /**
-   * Resume a paused session.
-   */
   resume(sessionId) {
     return this.update(sessionId, {
       status: 'active',
@@ -133,9 +146,6 @@ class SessionManager {
     });
   }
 
-  /**
-   * Mark session as completed.
-   */
   complete(sessionId) {
     return this.update(sessionId, {
       status: 'completed',
@@ -143,19 +153,27 @@ class SessionManager {
     });
   }
 
-  /**
-   * Delete a session.
-   */
   delete(sessionId) {
+    this._validateId(sessionId);
     const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
   }
 
+  /** Atomic write: write to temp file then rename into place. */
   _save(session) {
+    this._validateId(session.id);
     const filePath = path.join(SESSIONS_DIR, `${session.id}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(session, null, 2), 'utf-8');
+    const tmpPath = `${filePath}.${process.pid}.tmp`;
+    try {
+      fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, filePath);
+    } catch (e) {
+      // Clean up tmp file on failure
+      try { fs.unlinkSync(tmpPath); } catch {}
+      throw e;
+    }
   }
 }
 

@@ -16,7 +16,20 @@ function createRateLimiter(callsPerSecond = 3) {
   limiter.on('failed', async (error, jobInfo) => {
     if (error.response && error.response.status === 429) {
       const retryAfter = error.response.headers['retry-after'];
-      const waitMs = retryAfter ? parseInt(retryAfter, 10) * 1000 : 5000;
+      let waitMs = 5000;
+      if (retryAfter) {
+        const parsed = Number(retryAfter);
+        if (!isNaN(parsed)) {
+          // Retry-After as seconds
+          waitMs = parsed * 1000;
+        } else {
+          // Retry-After as HTTP-date
+          const date = new Date(retryAfter);
+          if (!isNaN(date.getTime())) {
+            waitMs = Math.max(0, date.getTime() - Date.now());
+          }
+        }
+      }
       console.log(`Rate limited. Waiting ${waitMs}ms before retry...`);
       return waitMs;
     }

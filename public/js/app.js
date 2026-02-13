@@ -160,7 +160,7 @@ function renderAccounts(accounts) {
       acc.source.toLowerCase().includes('grain') ? 'badge-grain' : 'badge-custom';
     return `
       <label class="account-item">
-        <input type="checkbox" ${checked} onchange="toggleAccount('${key}')">
+        <input type="checkbox" ${checked} onchange="toggleAccount('${escapeAttr(key)}')">
         <span>${escapeHtml(acc.name)}</span>
         <span class="source-badge ${badgeClass}">${escapeHtml(acc.source)}</span>
       </label>
@@ -293,7 +293,9 @@ async function resumeMerge() {
 }
 
 function saveCurrentSession() {
-  toast(`Session saved: ${currentSessionId}`, 'success');
+  // Session state is automatically saved to disk on every progress update.
+  // This button simply confirms to the user that their session is persisted.
+  toast(`Session auto-saved: ${currentSessionId}. You can close and resume later.`, 'success');
 }
 
 function showCompleteStats(data) {
@@ -551,6 +553,10 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function toast(message, type = 'success') {
