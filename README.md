@@ -1,5 +1,9 @@
 # Call Transcript Merger
 
+<p align="center">
+  <img src="build/icon.png" alt="Noo-noo app icon" width="128">
+</p>
+
 Merge call transcripts from **Gong**, **Grain**, and other call recording platforms into a single chronological Markdown document.
 
 ## Download
@@ -12,7 +16,10 @@ cd Transcript-Project-
 ./scripts/build-mac.sh
 ```
 
-Or **[Download pre-built Mac app (v1.0.2)](releases/Call-Transcript-Merger-1.0.2-mac.zip)** — Unzip and double-click the `.app` to run.
+**Pre-built downloads:**
+
+- **[Linux (v1.0.3)](releases/Call-Transcript-Merger-1.0.3-linux.zip)** — Unzip, then run the `call-transcript-merger` executable.
+- **[Mac (v1.0.2)](releases/Call-Transcript-Merger-1.0.2-mac.zip)** — Unzip and double-click the `.app` to run.
 
 > **First launch on Mac:** macOS blocks unsigned apps. Open Terminal and run:
 > ```
@@ -117,7 +124,10 @@ public/
 scripts/
   build-mac.sh          One-command Mac build with signing + notarization
   notarize.js           Electron-builder afterSign hook for Apple notarization
+  generate-icons.py     Generates Noo-noo app icons in all formats
 build/
+  icon.png              App icon (512x512 PNG)
+  icon.ico              App icon (Windows ICO)
   entitlements.mac.plist           macOS entitlements for hardened runtime
   entitlements.mac.inherit.plist   Inherited entitlements for child processes
 ```
