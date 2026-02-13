@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Call Transcript Merger</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -109,7 +110,7 @@
     <!-- STEP 2: Select Accounts -->
     <div id="step-2" class="card hidden">
       <h2>Step 2: Select Accounts / Companies</h2>
-      <p>Choose one or more accounts to merge. Duplicates across platforms can be selected together.</p>
+      <p>Accounts are auto-matched across providers by shared email domains. Selecting one in a matched group selects all. Use the <strong>Link</strong> button to manually match accounts that weren't auto-detected.</p>
 
       <div style="margin-bottom: 12px;">
         <input type="text" id="account-search" placeholder="Search accounts..." oninput="filterAccounts()">
@@ -184,6 +185,17 @@
       <div id="sessions-list"></div>
     </div>
     <div id="sessions-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:99;" onclick="closeSessions()"></div>
+
+    <!-- Manual Account Link Modal -->
+    <div id="link-modal" class="card hidden" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:560px; max-height:70vh; overflow-y:auto; z-index:100; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px;">
+        <h2 style="margin-bottom:0;">Link Account</h2>
+        <button class="btn btn-sm btn-outline" onclick="closeLinkModal()">Close</button>
+      </div>
+      <p id="link-modal-prompt"></p>
+      <div class="account-list" id="link-modal-list" style="max-height:300px;"></div>
+    </div>
+    <div id="link-modal-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:99;" onclick="closeLinkModal()"></div>
 
     <!-- Custom Provider Wizard Modal -->
     <div id="custom-wizard" class="card hidden" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:700px; max-height:85vh; overflow-y:auto; z-index:100; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">

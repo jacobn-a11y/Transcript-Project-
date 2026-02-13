@@ -42,6 +42,7 @@ class GrainProvider extends BaseProvider {
    */
   async getAccounts() {
     const accounts = new Map();
+    const accountDomains = new Map(); // accountId -> Set<domain>
     const recordings = await this._getAllRecordings();
 
     for (const rec of recordings) {
@@ -51,24 +52,31 @@ class GrainProvider extends BaseProvider {
       // Extract participant companies if available in metadata
       if (rec.participants) {
         for (const p of rec.participants) {
+          const domain = p.email ? p.email.split('@')[1]?.toLowerCase() : null;
+          const isPersonalDomain = domain &&
+            /^(gmail|yahoo|hotmail|outlook|icloud|aol|proton|live|msn)\./i.test(domain);
+
           if (p.company) {
             const id = `company:${p.company.toLowerCase()}`;
             if (!accounts.has(id)) {
               accounts.set(id, { id, name: p.company, source: 'Grain' });
+              accountDomains.set(id, new Set());
             }
-          } else if (p.email) {
-            const domain = p.email.split('@')[1];
-            if (domain && !domain.match(/(gmail|yahoo|hotmail|outlook)\./)) {
-              const name = domain.split('.')[0];
-              const id = `domain:${domain}`;
-              if (!accounts.has(id)) {
-                accounts.set(id, {
-                  id,
-                  name: name.charAt(0).toUpperCase() + name.slice(1),
-                  source: 'Grain',
-                });
-              }
+            if (domain && !isPersonalDomain) {
+              accountDomains.get(id).add(domain);
             }
+          } else if (domain && !isPersonalDomain) {
+            const name = domain.split('.')[0];
+            const id = `domain:${domain}`;
+            if (!accounts.has(id)) {
+              accounts.set(id, {
+                id,
+                name: name.charAt(0).toUpperCase() + name.slice(1),
+                source: 'Grain',
+              });
+              accountDomains.set(id, new Set());
+            }
+            accountDomains.get(id).add(domain);
           }
         }
       }
@@ -88,6 +96,7 @@ class GrainProvider extends BaseProvider {
             const id = `title:${name.toLowerCase()}`;
             if (!accounts.has(id) && name.length > 1 && name.length < 60) {
               accounts.set(id, { id, name, source: 'Grain' });
+              accountDomains.set(id, new Set());
             }
             break;
           }
@@ -98,9 +107,13 @@ class GrainProvider extends BaseProvider {
     // Fallback: group recordings by unique title prefixes
     if (accounts.size === 0 && recordings.length > 0) {
       accounts.set('all', { id: 'all', name: '(All Grain Recordings)', source: 'Grain' });
+      accountDomains.set('all', new Set());
     }
 
-    return Array.from(accounts.values());
+    return Array.from(accounts.values()).map(acc => ({
+      ...acc,
+      domains: Array.from(accountDomains.get(acc.id) || []),
+    }));
   }
 
   async getCallsForAccount(accountId) {

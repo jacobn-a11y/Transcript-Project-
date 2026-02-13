@@ -46,6 +46,7 @@ class GongProvider extends BaseProvider {
    */
   async getAccounts() {
     const accounts = new Map();
+    const accountDomains = new Map(); // accountId -> Set<domain>
 
     // Strategy 1: CRM accounts endpoint (single call)
     try {
@@ -55,13 +56,15 @@ class GongProvider extends BaseProvider {
       for (const obj of (crmData.objects || [])) {
         const name = (obj.fields && (obj.fields.name || obj.fields.Name)) || obj.objectId;
         accounts.set(obj.objectId, { id: obj.objectId, name, source: 'Gong' });
+        accountDomains.set(obj.objectId, new Set());
       }
-      if (accounts.size > 0) return Array.from(accounts.values());
     } catch {
       // CRM endpoint may not be available — fall through
     }
 
-    // Strategy 2: Scan recent calls (capped to avoid burning API quota)
+    // Strategy 2: Scan recent calls to collect domain associations and discover
+    // additional accounts. Always runs even if Strategy 1 succeeds, so that
+    // CRM accounts get enriched with email domains for cross-provider matching.
     const MAX_PAGES = 5;
     let cursor = null;
     let pages = 0;
@@ -84,24 +87,34 @@ class GongProvider extends BaseProvider {
       const data = await this._request('post', '/calls/extensive', payload);
 
       for (const call of (data.calls || [])) {
-        this._extractAccountsFromCall(call, accounts);
+        this._extractAccountsFromCall(call, accounts, accountDomains);
       }
 
       cursor = (data.records && data.records.cursor) || data.cursor || null;
       pages++;
     } while (cursor && pages < MAX_PAGES);
 
-    if (accounts.size > 0) return Array.from(accounts.values());
+    if (accounts.size > 0) {
+      return Array.from(accounts.values()).map(acc => ({
+        ...acc,
+        domains: Array.from(accountDomains.get(acc.id) || []),
+      }));
+    }
 
     // Strategy 3: Final fallback
-    accounts.set('all', { id: 'all', name: '(All Gong Calls)', source: 'Gong' });
-    return Array.from(accounts.values());
+    return [{ id: 'all', name: '(All Gong Calls)', source: 'Gong', domains: [] }];
   }
 
   /** Extract CRM accounts and domain-based accounts from a single call. */
-  _extractAccountsFromCall(call, accounts) {
+  _extractAccountsFromCall(call, accounts, accountDomains) {
     for (const party of (call.parties || [])) {
       if (party.affiliation !== 'External') continue;
+
+      const domain = party.emailAddress
+        ? party.emailAddress.split('@')[1]?.toLowerCase()
+        : null;
+      const isPersonalDomain = domain &&
+        /^(gmail|yahoo|hotmail|outlook|icloud|aol|proton|live|msn)\./i.test(domain);
 
       // CRM context
       for (const ctx of (party.context || [])) {
@@ -112,6 +125,12 @@ class GongProvider extends BaseProvider {
               const id = obj.objectId || name;
               if (name && !accounts.has(id)) {
                 accounts.set(id, { id, name, source: 'Gong' });
+                if (!accountDomains.has(id)) accountDomains.set(id, new Set());
+              }
+              // Associate email domain with this CRM account
+              if (domain && !isPersonalDomain && accounts.has(id)) {
+                if (!accountDomains.has(id)) accountDomains.set(id, new Set());
+                accountDomains.get(id).add(domain);
               }
             }
           }
@@ -119,14 +138,13 @@ class GongProvider extends BaseProvider {
       }
 
       // Domain fallback
-      if (party.emailAddress) {
-        const domain = party.emailAddress.split('@')[1];
-        if (domain && !domain.match(/(gmail|yahoo|hotmail|outlook|icloud|aol|proton)\./i)) {
-          const id = `domain:${domain}`;
-          if (!accounts.has(id)) {
-            accounts.set(id, { id, name: this._capitalize(domain.split('.')[0]), source: 'Gong' });
-          }
+      if (domain && !isPersonalDomain) {
+        const id = `domain:${domain}`;
+        if (!accounts.has(id)) {
+          accounts.set(id, { id, name: this._capitalize(domain.split('.')[0]), source: 'Gong' });
         }
+        if (!accountDomains.has(id)) accountDomains.set(id, new Set());
+        accountDomains.get(id).add(domain);
       }
     }
   }

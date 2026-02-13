@@ -2,6 +2,7 @@
 let currentStep = 1;
 let allAccounts = [];
 let selectedAccountIds = new Set();
+let accountGroups = [];   // [{accountKeys: [...], sharedDomains: [...]}]
 let currentSessionId = null;
 let mergeResult = null;
 let customProviders = [];
@@ -151,6 +152,7 @@ async function fetchAccounts() {
     if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
     const data = await resp.json();
     allAccounts = data.accounts || [];
+    accountGroups = data.groups || [];
     renderAccounts(allAccounts);
   } catch (e) {
     listEl.innerHTML = `<div class="progress-text" style="padding:20px;text-align:center;color:var(--danger);">Error loading accounts: ${escapeHtml(e.message)}</div>`;
@@ -165,38 +167,187 @@ function renderAccounts(accounts) {
     return;
   }
 
-  // Sort alphabetically
-  const sorted = [...accounts].sort((a, b) => a.name.localeCompare(b.name));
+  const searchQuery = (document.getElementById('account-search').value || '').toLowerCase();
 
-  listEl.innerHTML = sorted.map(acc => {
-    const key = acc.id + '|' + acc.source;
-    const checked = selectedAccountIds.has(key) ? 'checked' : '';
-    const badgeClass = acc.source.toLowerCase().includes('gong') ? 'badge-gong' :
-      acc.source.toLowerCase().includes('grain') ? 'badge-grain' : 'badge-custom';
+  // Determine which accounts are in groups
+  const grouped = new Set();
+  const visibleGroups = [];
+
+  for (const group of accountGroups) {
+    const groupAccounts = group.accountKeys
+      .map(key => accounts.find(a => (a.id + '|' + a.source) === key))
+      .filter(Boolean);
+
+    if (groupAccounts.length < 2) continue;
+
+    // Apply search filter to group
+    if (searchQuery) {
+      const anyMatch = groupAccounts.some(a =>
+        a.name.toLowerCase().includes(searchQuery) ||
+        a.source.toLowerCase().includes(searchQuery) ||
+        (a.domains || []).some(d => d.includes(searchQuery))
+      );
+      if (!anyMatch) continue;
+    }
+
+    for (const acc of groupAccounts) {
+      grouped.add(acc.id + '|' + acc.source);
+    }
+    visibleGroups.push({ ...group, accounts: groupAccounts });
+  }
+
+  // Build grouped HTML
+  const groupHtml = visibleGroups.map(group => {
+    const domainLabel = group.sharedDomains.length > 0
+      ? group.sharedDomains.slice(0, 3).join(', ')
+      : 'manually linked';
     return `
-      <label class="account-item">
-        <input type="checkbox" ${checked} onchange="toggleAccount('${escapeAttr(key)}')">
-        <span>${escapeHtml(acc.name)}</span>
-        <span class="source-badge ${badgeClass}">${escapeHtml(acc.source)}</span>
-      </label>
+      <div class="account-group">
+        <div class="account-group-header">
+          <span class="account-group-icon">&#128279;</span>
+          <span class="account-group-label">Matched: ${escapeHtml(domainLabel)}</span>
+        </div>
+        ${group.accounts.map(acc => renderAccountItem(acc, false)).join('')}
+      </div>
     `;
   }).join('');
+
+  // Ungrouped accounts
+  let ungrouped = accounts.filter(a => !grouped.has(a.id + '|' + a.source));
+  if (searchQuery) {
+    ungrouped = ungrouped.filter(a =>
+      a.name.toLowerCase().includes(searchQuery) ||
+      a.source.toLowerCase().includes(searchQuery) ||
+      (a.domains || []).some(d => d.includes(searchQuery))
+    );
+  }
+  const ungroupedSorted = [...ungrouped].sort((a, b) => a.name.localeCompare(b.name));
+  const ungroupedHtml = ungroupedSorted.map(acc => renderAccountItem(acc, true)).join('');
+
+  listEl.innerHTML = groupHtml + ungroupedHtml;
+}
+
+function renderAccountItem(acc, showLinkButton) {
+  const key = acc.id + '|' + acc.source;
+  const checked = selectedAccountIds.has(key) ? 'checked' : '';
+  const badgeClass = acc.source.toLowerCase().includes('gong') ? 'badge-gong' :
+    acc.source.toLowerCase().includes('grain') ? 'badge-grain' : 'badge-custom';
+  const domainTag = (acc.domains && acc.domains.length > 0)
+    ? `<span class="domain-tag">${escapeHtml(acc.domains[0])}</span>`
+    : '';
+  const linkBtn = showLinkButton
+    ? `<button class="btn btn-sm btn-outline link-btn" onclick="event.preventDefault(); event.stopPropagation(); showLinkModal('${escapeAttr(key)}')">Link</button>`
+    : '';
+  return `
+    <label class="account-item">
+      <input type="checkbox" ${checked} onchange="toggleAccount('${escapeAttr(key)}')">
+      <span class="account-name">${escapeHtml(acc.name)}</span>
+      ${domainTag}
+      <span class="source-badge ${badgeClass}">${escapeHtml(acc.source)}</span>
+      ${linkBtn}
+    </label>
+  `;
 }
 
 function toggleAccount(key) {
   if (selectedAccountIds.has(key)) {
     selectedAccountIds.delete(key);
+    // If in a group, deselect all in the group
+    const group = findGroupForKey(key);
+    if (group) {
+      for (const k of group.accountKeys) selectedAccountIds.delete(k);
+    }
   } else {
     selectedAccountIds.add(key);
+    // If in a group, select all in the group
+    const group = findGroupForKey(key);
+    if (group) {
+      for (const k of group.accountKeys) selectedAccountIds.add(k);
+    }
   }
+  renderAccounts(allAccounts);
+}
+
+function findGroupForKey(key) {
+  return accountGroups.find(g => g.accountKeys.includes(key)) || null;
 }
 
 function filterAccounts() {
-  const query = document.getElementById('account-search').value.toLowerCase();
-  const filtered = allAccounts.filter(a =>
-    a.name.toLowerCase().includes(query) || a.source.toLowerCase().includes(query)
-  );
-  renderAccounts(filtered);
+  renderAccounts(allAccounts);
+}
+
+/* ============= Manual Account Linking ============= */
+
+let linkModalSource = null; // key of account being linked
+
+function showLinkModal(sourceKey) {
+  linkModalSource = sourceKey;
+  const sourceAcc = allAccounts.find(a => (a.id + '|' + a.source) === sourceKey);
+  if (!sourceAcc) return;
+
+  document.getElementById('link-modal').classList.remove('hidden');
+  document.getElementById('link-modal-overlay').classList.remove('hidden');
+  document.getElementById('link-modal-prompt').textContent =
+    `Link "${sourceAcc.name}" (${sourceAcc.source}) to an account from another provider:`;
+
+  // Show accounts from OTHER providers that aren't already in a group with this one
+  const sourceGroup = findGroupForKey(sourceKey);
+  const alreadyLinked = new Set(sourceGroup ? sourceGroup.accountKeys : [sourceKey]);
+
+  const candidates = allAccounts.filter(a => {
+    const k = a.id + '|' + a.source;
+    if (alreadyLinked.has(k)) return false;
+    if (a.source === sourceAcc.source) return false; // Different provider only
+    return true;
+  }).sort((a, b) => a.name.localeCompare(b.name));
+
+  const listEl = document.getElementById('link-modal-list');
+  if (candidates.length === 0) {
+    listEl.innerHTML = '<div class="progress-text" style="padding:12px;">No accounts from other providers available to link.</div>';
+    return;
+  }
+
+  listEl.innerHTML = candidates.map(acc => {
+    const k = acc.id + '|' + acc.source;
+    const badgeClass = acc.source.toLowerCase().includes('gong') ? 'badge-gong' :
+      acc.source.toLowerCase().includes('grain') ? 'badge-grain' : 'badge-custom';
+    const domainTag = (acc.domains && acc.domains.length > 0)
+      ? `<span class="domain-tag">${escapeHtml(acc.domains[0])}</span>`
+      : '';
+    return `
+      <div class="account-item" style="cursor:pointer;" onclick="createLink('${escapeAttr(k)}')">
+        <span class="account-name">${escapeHtml(acc.name)}</span>
+        ${domainTag}
+        <span class="source-badge ${badgeClass}">${escapeHtml(acc.source)}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function closeLinkModal() {
+  document.getElementById('link-modal').classList.add('hidden');
+  document.getElementById('link-modal-overlay').classList.add('hidden');
+  linkModalSource = null;
+}
+
+async function createLink(targetKey) {
+  if (!linkModalSource) return;
+
+  try {
+    const resp = await fetch(`${API}/api/accounts/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: linkModalSource, to: targetKey }),
+    });
+    if (!resp.ok) throw new Error('Link failed');
+    const data = await resp.json();
+    accountGroups = data.groups || accountGroups;
+    closeLinkModal();
+    renderAccounts(allAccounts);
+    toast('Accounts linked', 'success');
+  } catch (e) {
+    toast(`Failed to link: ${e.message}`, 'error');
+  }
 }
 
 /* ============= Merge Process ============= */

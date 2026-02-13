@@ -4,15 +4,23 @@ Merge call transcripts from **Gong**, **Grain**, and other call recording platfo
 
 ## Download
 
-**Build the latest (v1.0.3)** on your Mac for best results:
+**[Download the latest version from GitHub](https://github.com/jacobn-a11y/Transcript-Project-/archive/refs/heads/main.zip)** — Download the zip, then build on your Mac:
 
 ```bash
-git clone <this-repo>
-cd Transcript-Project-
+unzip Transcript-Project--main.zip
+cd Transcript-Project--main
+npm install
 ./scripts/build-mac.sh
 ```
 
-Or **[Download pre-built Mac app (v1.0.2)](releases/Call-Transcript-Merger-1.0.2-mac.zip)** — Unzip and double-click the `.app` to run.
+Or clone and build directly:
+
+```bash
+git clone https://github.com/jacobn-a11y/Transcript-Project-.git
+cd Transcript-Project-
+npm install
+./scripts/build-mac.sh
+```
 
 > **First launch on Mac:** macOS blocks unsigned apps. Open Terminal and run:
 > ```
@@ -26,8 +34,9 @@ Or **[Download pre-built Mac app (v1.0.2)](releases/Call-Transcript-Merger-1.0.2
 
 - **Gong integration** — Imports accounts, calls, transcripts, speaker info, and AI summaries via Gong API v2
 - **Grain integration** — Imports recordings, transcripts, and intelligence notes via Grain Public API
+- **Cross-provider account matching** — Automatically links accounts across Gong and Grain by shared email domains; also supports manual linking for names that don't auto-match
 - **Custom provider support** — Connect any call recording API through a setup wizard with field mapping
-- **Company/account selection** — Checkboxes with alphabetical sort; select across platforms to handle duplicates
+- **Company/account selection** — Matched accounts are grouped visually; selecting one auto-selects all in the group
 - **Chronological merge** — All calls sorted by date into one continuous Markdown document
 - **Rich metadata** — Speaker info, call summaries, key points, and outlines above each transcript
 - **Word count** — Displayed in UI and in the output filename

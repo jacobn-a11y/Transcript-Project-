@@ -122,6 +122,8 @@ let currentConfig = null;
 let providers = {};
 let mergeLogs = {};     // sessionId -> [{ time, message, level }]
 let mergeAbort = {};    // sessionId -> boolean (flag to stop processing)
+let lastFetchedAccounts = []; // Cached accounts from last /api/accounts call
+let manualLinks = [];   // [{from: "id|source", to: "id|source"}, ...]
 
 /* ============= Config ============= */
 
@@ -135,6 +137,8 @@ app.post('/api/config', (req, res) => {
   // M1: Clear old provider references before reconfiguring
   currentConfig = null;
   providers = {};
+  lastFetchedAccounts = [];
+  manualLinks = [];
 
   currentConfig = body;
 
@@ -207,6 +211,140 @@ app.get('/api/test/:provider', async (req, res) => {
   }
 });
 
+/* ============= Account Matching ============= */
+
+const PERSONAL_DOMAINS = new Set([
+  'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com',
+  'aol.com', 'proton.me', 'protonmail.com', 'live.com', 'msn.com',
+  'mail.com', 'zoho.com', 'yandex.com', 'inbox.com',
+]);
+
+/**
+ * Group accounts that share email domains using union-find.
+ * Returns groups that span multiple providers or contain multiple accounts.
+ */
+function groupAccountsByDomain(accounts) {
+  // Union-Find
+  const parent = {};
+  const rank = {};
+
+  function find(x) {
+    if (parent[x] !== x) parent[x] = find(parent[x]);
+    return parent[x];
+  }
+
+  function union(x, y) {
+    const px = find(x), py = find(y);
+    if (px === py) return;
+    if (rank[px] < rank[py]) parent[px] = py;
+    else if (rank[px] > rank[py]) parent[py] = px;
+    else { parent[py] = px; rank[px]++; }
+  }
+
+  for (let i = 0; i < accounts.length; i++) {
+    parent[i] = i;
+    rank[i] = 0;
+  }
+
+  // Build domain -> account indices map
+  const domainToIndices = new Map();
+  for (let i = 0; i < accounts.length; i++) {
+    for (const domain of (accounts[i].domains || [])) {
+      const d = domain.toLowerCase();
+      if (PERSONAL_DOMAINS.has(d)) continue;
+      if (!domainToIndices.has(d)) domainToIndices.set(d, []);
+      domainToIndices.get(d).push(i);
+    }
+  }
+
+  // Union accounts that share any domain
+  for (const indices of domainToIndices.values()) {
+    for (let i = 1; i < indices.length; i++) {
+      union(indices[0], indices[i]);
+    }
+  }
+
+  // Also apply manual links
+  for (const link of manualLinks) {
+    const fromIdx = accounts.findIndex(a => `${a.id}|${a.source}` === link.from);
+    const toIdx = accounts.findIndex(a => `${a.id}|${a.source}` === link.to);
+    if (fromIdx >= 0 && toIdx >= 0) {
+      union(fromIdx, toIdx);
+    }
+  }
+
+  // Build groups
+  const groupMap = new Map();
+  for (let i = 0; i < accounts.length; i++) {
+    const root = find(i);
+    if (!groupMap.has(root)) groupMap.set(root, []);
+    groupMap.get(root).push(i);
+  }
+
+  // Only return groups with 2+ accounts
+  const groups = [];
+  for (const indices of groupMap.values()) {
+    if (indices.length < 2) continue;
+    const sharedDomains = new Set();
+    for (const idx of indices) {
+      for (const d of (accounts[idx].domains || [])) {
+        if (!PERSONAL_DOMAINS.has(d.toLowerCase())) sharedDomains.add(d.toLowerCase());
+      }
+    }
+    // Check if group has manual links contributing to it
+    const accountKeys = indices.map(i => `${accounts[i].id}|${accounts[i].source}`);
+    const isManuallyLinked = manualLinks.some(
+      l => accountKeys.includes(l.from) && accountKeys.includes(l.to)
+    );
+    groups.push({
+      accountKeys,
+      sharedDomains: Array.from(sharedDomains),
+      hasManualLink: isManuallyLinked,
+    });
+  }
+
+  return groups;
+}
+
+/**
+ * For providers that have NO selected accounts, auto-include accounts
+ * that match the email domains of selected accounts.
+ */
+function crossProviderAutoMatch(selectedAccounts) {
+  if (!lastFetchedAccounts || lastFetchedAccounts.length === 0) return [];
+
+  // Build domain lookup from cached full account list
+  const domainLookup = new Map();
+  for (const acc of lastFetchedAccounts) {
+    domainLookup.set(`${acc.id}|${acc.source}`, acc.domains || []);
+  }
+
+  // Collect domains from selected accounts
+  const selectedDomains = new Set();
+  const selectedSources = new Set();
+  for (const acc of selectedAccounts) {
+    selectedSources.add(acc.source);
+    const domains = domainLookup.get(`${acc.id}|${acc.source}`) || acc.domains || [];
+    for (const d of domains) selectedDomains.add(d.toLowerCase());
+  }
+
+  if (selectedDomains.size === 0) return [];
+
+  // Find enabled providers that aren't represented in the selection
+  const enabledProviderNames = Object.values(providers).map(p => p.name);
+  const missingProviders = new Set(enabledProviderNames.filter(s => !selectedSources.has(s)));
+
+  if (missingProviders.size === 0) return [];
+
+  const selectedKeys = new Set(selectedAccounts.map(a => `${a.id}|${a.source}`));
+
+  return lastFetchedAccounts.filter(acc => {
+    if (selectedKeys.has(`${acc.id}|${acc.source}`)) return false;
+    if (!missingProviders.has(acc.source)) return false;
+    return (acc.domains || []).some(d => selectedDomains.has(d.toLowerCase()));
+  });
+}
+
 /* ============= Accounts ============= */
 
 app.get('/api/accounts', async (req, res) => {
@@ -221,7 +359,41 @@ app.get('/api/accounts', async (req, res) => {
     }
   }
 
-  res.json({ accounts: allAccounts });
+  // Cache for cross-provider matching during merge
+  lastFetchedAccounts = allAccounts;
+
+  // Auto-group accounts by shared email domains
+  const groups = groupAccountsByDomain(allAccounts);
+
+  res.json({ accounts: allAccounts, groups });
+});
+
+/* ============= Manual Account Linking ============= */
+
+app.post('/api/accounts/link', (req, res) => {
+  const { from, to } = req.body;
+  if (!from || !to || typeof from !== 'string' || typeof to !== 'string') {
+    return res.status(400).json({ error: 'from and to account keys are required.' });
+  }
+  // Avoid duplicate links
+  const exists = manualLinks.some(
+    l => (l.from === from && l.to === to) || (l.from === to && l.to === from)
+  );
+  if (!exists) {
+    manualLinks.push({ from, to });
+  }
+  // Recompute groups
+  const groups = groupAccountsByDomain(lastFetchedAccounts);
+  res.json({ success: true, groups });
+});
+
+app.post('/api/accounts/unlink', (req, res) => {
+  const { from, to } = req.body;
+  manualLinks = manualLinks.filter(
+    l => !((l.from === from && l.to === to) || (l.from === to && l.to === from))
+  );
+  const groups = groupAccountsByDomain(lastFetchedAccounts);
+  res.json({ success: true, groups });
 });
 
 /* ============= Merge ============= */
@@ -258,6 +430,18 @@ app.post('/api/merge/start', async (req, res) => {
 
 async function runMerge(sessionId, selectedAccounts, projectName) {
   addLog(sessionId, 'Starting merge process...');
+
+  // Cross-provider domain matching: auto-include matching accounts from
+  // providers that have no selected accounts
+  const autoMatched = crossProviderAutoMatch(selectedAccounts);
+  if (autoMatched.length > 0) {
+    addLog(sessionId, `Auto-matched ${autoMatched.length} account(s) from other providers via shared email domains:`);
+    for (const acc of autoMatched) {
+      const domains = (acc.domains || []).join(', ');
+      addLog(sessionId, `  + "${acc.name}" (${acc.source})${domains ? ' [' + domains + ']' : ''}`, 'success');
+    }
+    selectedAccounts = [...selectedAccounts, ...autoMatched];
+  }
 
   // Check if we already have a call list from a previous run (resume case)
   const existingSession = sessionManager.load(sessionId);
