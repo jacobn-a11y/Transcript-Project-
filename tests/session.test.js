@@ -138,10 +138,11 @@ module.exports = function (describe, assert) {
 
   describe('SessionManager — Atomic writes', (it) => {
     const sm = freshSessionManager();
+    const os = require('os');
+    const sessDir = path.join(os.homedir(), '.call-transcript-merger', 'sessions');
 
     it('session file contains valid JSON after write', () => {
       const s = sm.create({ projectName: 'AtomicTest' });
-      const sessDir = path.join(__dirname, '..', 'sessions');
       const filePath = path.join(sessDir, `${s.id}.json`);
       assert.ok(fs.existsSync(filePath), 'File should exist');
       const content = fs.readFileSync(filePath, 'utf-8');
@@ -152,7 +153,6 @@ module.exports = function (describe, assert) {
 
     it('no .tmp files left behind after successful write', () => {
       const s = sm.create({ projectName: 'TmpCleanup' });
-      const sessDir = path.join(__dirname, '..', 'sessions');
       const tmpFiles = fs.readdirSync(sessDir).filter(f => f.endsWith('.tmp'));
       assert.equal(tmpFiles.length, 0, 'No .tmp files should remain');
       sm.delete(s.id);

@@ -3,12 +3,9 @@ const path = require('path');
 const os = require('os');
 const { v4: uuidv4 } = require('uuid');
 
-// When packaged inside an Electron asar, __dirname is read-only.
-// Store session data in the user's home directory instead.
-const isPackaged = __dirname.includes('app.asar');
-const SESSIONS_DIR = isPackaged
-  ? path.join(os.homedir(), '.call-transcript-merger', 'sessions')
-  : path.join(__dirname, '..', '..', 'sessions');
+// Always store sessions in the user's home directory.
+// The app bundle is read-only on macOS (asar or App Translocation).
+const SESSIONS_DIR = path.join(os.homedir(), '.call-transcript-merger', 'sessions');
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
