@@ -1,5 +1,9 @@
 # Call Transcript Merger
 
+<p align="center">
+  <img src="build/icon.png" alt="Noo-noo app icon" width="128">
+</p>
+
 Merge call transcripts from **Gong**, **Grain**, and other call recording platforms into a single chronological Markdown document.
 
 ## Download
