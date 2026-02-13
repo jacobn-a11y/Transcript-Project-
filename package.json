@@ -6,12 +6,16 @@
   "scripts": {
     "start": "node src/main/server.js",
     "electron": "electron .",
-    "build": "electron-builder --mac"
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux",
+    "build:win": "electron-builder --win",
+    "test": "node tests/run.js"
   },
   "dependencies": {
     "axios": "^1.13.5",
     "bottleneck": "^2.19.5",
-"express": "^4.22.1",
+    "express": "^4.22.1",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
@@ -22,12 +26,22 @@
     "appId": "com.transcript-merger.app",
     "productName": "Call Transcript Merger",
     "mac": {
-      "category": "public.app-category.business"
+      "category": "public.app-category.business",
+      "target": ["dir", "zip"]
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Office"
+    },
+    "win": {
+      "target": ["nsis"]
     },
     "files": [
       "src/**/*",
       "public/**/*",
       "package.json"
-    ]
+    ],
+    "extraResources": [],
+    "asar": true
   }
 }

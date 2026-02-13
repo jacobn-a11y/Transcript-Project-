@@ -6,6 +6,7 @@ let currentSessionId = null;
 let mergeResult = null;
 let customProviders = [];
 let pollingInterval = null;
+let toastStack = 0;
 
 const API = '';
 
@@ -134,11 +135,12 @@ async function fetchAccounts() {
 
   try {
     const resp = await fetch(`${API}/api/accounts`);
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
     const data = await resp.json();
     allAccounts = data.accounts || [];
     renderAccounts(allAccounts);
   } catch (e) {
-    listEl.innerHTML = `<div class="progress-text" style="padding:20px;text-align:center;color:var(--danger);">Error: ${e.message}</div>`;
+    listEl.innerHTML = `<div class="progress-text" style="padding:20px;text-align:center;color:var(--danger);">Error loading accounts: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -203,6 +205,10 @@ async function startMerge() {
         primarySchema: document.getElementById('primarySchema').value,
       }),
     });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `Server returned ${resp.status}` }));
+      throw new Error(err.error || 'Failed to start merge');
+    }
     const data = await resp.json();
     currentSessionId = data.sessionId;
 
@@ -216,12 +222,30 @@ async function startMerge() {
 function startPolling() {
   if (pollingInterval) clearInterval(pollingInterval);
   pollingInterval = setInterval(pollProgress, 1500);
+
+  // Pause polling when tab is hidden, resume when visible
+  document.addEventListener('visibilitychange', handleVisibility);
 }
 
 function stopPolling() {
   if (pollingInterval) {
     clearInterval(pollingInterval);
     pollingInterval = null;
+  }
+  document.removeEventListener('visibilitychange', handleVisibility);
+}
+
+function handleVisibility() {
+  if (document.hidden) {
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+      pollingInterval = null;
+    }
+  } else {
+    if (!pollingInterval && currentSessionId) {
+      pollProgress(); // Immediate poll on return
+      pollingInterval = setInterval(pollProgress, 1500);
+    }
   }
 }
 
@@ -230,6 +254,7 @@ async function pollProgress() {
 
   try {
     const resp = await fetch(`${API}/api/merge/progress/${currentSessionId}`);
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
     const data = await resp.json();
 
     updateProgressUI(data);
@@ -246,7 +271,7 @@ async function pollProgress() {
       toast(data.error || 'An error occurred', 'error');
     }
   } catch (e) {
-    // Polling error, ignore
+    // Network error during polling — don't crash, just skip this tick
   }
 }
 
@@ -279,17 +304,25 @@ function updateProgressUI(data) {
 
 async function pauseMerge() {
   if (!currentSessionId) return;
-  await fetch(`${API}/api/merge/pause/${currentSessionId}`, { method: 'POST' });
-  stopPolling();
-  toast('Session paused. You can resume later.', 'warning');
-  pollProgress(); // One final poll to update UI
+  try {
+    await fetch(`${API}/api/merge/pause/${currentSessionId}`, { method: 'POST' });
+    stopPolling();
+    toast('Session paused. You can resume later.', 'warning');
+    pollProgress(); // One final poll to update UI
+  } catch (e) {
+    toast(`Failed to pause: ${e.message}`, 'error');
+  }
 }
 
 async function resumeMerge() {
   if (!currentSessionId) return;
-  await fetch(`${API}/api/merge/resume/${currentSessionId}`, { method: 'POST' });
-  startPolling();
-  toast('Resuming...', 'success');
+  try {
+    await fetch(`${API}/api/merge/resume/${currentSessionId}`, { method: 'POST' });
+    startPolling();
+    toast('Resuming...', 'success');
+  } catch (e) {
+    toast(`Failed to resume: ${e.message}`, 'error');
+  }
 }
 
 function saveCurrentSession() {
@@ -333,6 +366,7 @@ async function showSessions() {
 
   try {
     const resp = await fetch(`${API}/api/sessions`);
+    if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
     const data = await resp.json();
 
     if (data.sessions.length === 0) {
@@ -347,18 +381,18 @@ async function showSessions() {
           <div class="meta">
             ${s.progress.completedCalls}/${s.progress.totalCalls} calls &middot;
             ${new Date(s.updatedAt).toLocaleDateString()} &middot;
-            <span class="status-badge status-${s.status}">${s.status}</span>
+            <span class="status-badge status-${escapeAttr(s.status)}">${escapeHtml(s.status)}</span>
           </div>
         </div>
         <div class="btn-group" style="margin:0;">
-          ${s.status === 'paused' ? `<button class="btn btn-sm btn-success" onclick="resumeSession('${s.id}')">Resume</button>` : ''}
-          ${s.status === 'completed' ? `<button class="btn btn-sm btn-primary" onclick="downloadSession('${s.id}')">Download</button>` : ''}
-          <button class="btn btn-sm btn-danger" onclick="deleteSession('${s.id}')">Delete</button>
+          ${s.status === 'paused' ? `<button class="btn btn-sm btn-success" onclick="resumeSession('${escapeAttr(s.id)}')">Resume</button>` : ''}
+          ${s.status === 'completed' ? `<button class="btn btn-sm btn-primary" onclick="downloadSession('${escapeAttr(s.id)}')">Download</button>` : ''}
+          <button class="btn btn-sm btn-danger" onclick="deleteSession('${escapeAttr(s.id)}')">Delete</button>
         </div>
       </div>
     `).join('');
   } catch (e) {
-    listEl.innerHTML = `<div class="progress-text" style="color:var(--danger);">Error: ${e.message}</div>`;
+    listEl.innerHTML = `<div class="progress-text" style="color:var(--danger);">Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -371,8 +405,12 @@ async function resumeSession(sessionId) {
   closeSessions();
   currentSessionId = sessionId;
   goToStep(4);
-  await fetch(`${API}/api/merge/resume/${sessionId}`, { method: 'POST' });
-  startPolling();
+  try {
+    await fetch(`${API}/api/merge/resume/${sessionId}`, { method: 'POST' });
+    startPolling();
+  } catch (e) {
+    toast(`Failed to resume: ${e.message}`, 'error');
+  }
 }
 
 async function downloadSession(sessionId) {
@@ -380,8 +418,12 @@ async function downloadSession(sessionId) {
 }
 
 async function deleteSession(sessionId) {
-  await fetch(`${API}/api/sessions/${sessionId}`, { method: 'DELETE' });
-  showSessions();
+  try {
+    await fetch(`${API}/api/sessions/${sessionId}`, { method: 'DELETE' });
+    showSessions();
+  } catch (e) {
+    toast(`Failed to delete: ${e.message}`, 'error');
+  }
 }
 
 /* ============= Custom Provider Wizard ============= */
@@ -563,8 +605,14 @@ function toast(message, type = 'success') {
   const el = document.createElement('div');
   el.className = `toast ${type}`;
   el.textContent = message;
+  // Stack toasts so they don't overlap
+  el.style.bottom = `${20 + toastStack * 60}px`;
+  toastStack++;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  setTimeout(() => {
+    el.remove();
+    toastStack = Math.max(0, toastStack - 1);
+  }, 4000);
 }
 
 /* ============= Init ============= */

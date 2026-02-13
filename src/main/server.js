@@ -439,8 +439,8 @@ app.delete('/api/sessions/:sessionId', (req, res) => {
 /* ============= Start ============= */
 
 // Bind to localhost only — not accessible from other machines on the network
-app.listen(PORT, '127.0.0.1', () => {
+const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`Call Transcript Merger running at http://localhost:${PORT}`);
 });
 
-module.exports = app;
+module.exports = server;

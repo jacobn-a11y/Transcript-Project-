@@ -32,30 +32,44 @@ class GongProvider extends BaseProvider {
   }
 
   async testConnection() {
-    // GET /v2/users does not require date params — just a simple auth check
     await this._request('get', '/users');
     return { success: true, message: 'Connected to Gong.' };
   }
 
   /**
-   * Gong doesn't have a direct "list accounts" endpoint.
-   * We fetch calls with extended context and extract unique account names
-   * from the CRM context and party affiliations.
+   * Discover accounts. Strategy (in order of preference):
+   *  1. Try the CRM objects endpoint (cheapest — 1 API call)
+   *  2. Scan recent calls for CRM account context (capped at MAX_PAGES)
+   *  3. Fall back to domain extraction from external participants
+   *  4. Offer "(All Gong Calls)" bucket
    */
   async getAccounts() {
     const accounts = new Map();
-    let cursor = null;
 
-    // Fetch calls in large date range to discover accounts
+    // Strategy 1: CRM accounts endpoint (single call)
+    try {
+      const crmData = await this._request('get', '/crm/object/list', null, {
+        objectType: 'Account',
+      });
+      for (const obj of (crmData.objects || [])) {
+        const name = (obj.fields && (obj.fields.name || obj.fields.Name)) || obj.objectId;
+        accounts.set(obj.objectId, { id: obj.objectId, name, source: 'Gong' });
+      }
+      if (accounts.size > 0) return Array.from(accounts.values());
+    } catch {
+      // CRM endpoint may not be available — fall through
+    }
+
+    // Strategy 2: Scan recent calls (capped to avoid burning API quota)
+    const MAX_PAGES = 5;
+    let cursor = null;
+    let pages = 0;
     const now = new Date().toISOString();
-    const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString();
+    const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
 
     do {
       const payload = {
-        filter: {
-          fromDateTime: threeYearsAgo,
-          toDateTime: now,
-        },
+        filter: { fromDateTime: oneYearAgo, toDateTime: now },
         contentSelector: {
           context: 'Extended',
           exposedFields: {
@@ -69,68 +83,51 @@ class GongProvider extends BaseProvider {
       const data = await this._request('post', '/calls/extensive', payload);
 
       for (const call of (data.calls || [])) {
-        // Extract account info from parties' context
-        for (const party of (call.parties || [])) {
-          if (party.affiliation === 'External') {
-            // Try to get company from context
-            for (const ctx of (party.context || [])) {
-              if (ctx.system === 'CRM' && ctx.objects) {
-                for (const obj of ctx.objects) {
-                  if (obj.objectType === 'Account' && obj.fields) {
-                    const name = obj.fields.name || obj.fields.Name;
-                    const id = obj.objectId || name;
-                    if (name && !accounts.has(id)) {
-                      accounts.set(id, { id, name, source: 'Gong' });
-                    }
-                  }
-                }
-              }
-            }
-            // Fallback: use emailAddress domain as company identifier
-            if (party.emailAddress && accounts.size === 0) {
-              const domain = party.emailAddress.split('@')[1];
-              if (domain && !domain.match(/(gmail|yahoo|hotmail|outlook)\./)) {
-                const name = domain.split('.')[0];
-                const id = `domain:${domain}`;
-                if (!accounts.has(id)) {
-                  accounts.set(id, { id, name: this._capitalize(name), source: 'Gong' });
-                }
+        this._extractAccountsFromCall(call, accounts);
+      }
+
+      cursor = (data.records && data.records.cursor) || data.cursor || null;
+      pages++;
+    } while (cursor && pages < MAX_PAGES);
+
+    if (accounts.size > 0) return Array.from(accounts.values());
+
+    // Strategy 3: Final fallback
+    accounts.set('all', { id: 'all', name: '(All Gong Calls)', source: 'Gong' });
+    return Array.from(accounts.values());
+  }
+
+  /** Extract CRM accounts and domain-based accounts from a single call. */
+  _extractAccountsFromCall(call, accounts) {
+    for (const party of (call.parties || [])) {
+      if (party.affiliation !== 'External') continue;
+
+      // CRM context
+      for (const ctx of (party.context || [])) {
+        if (ctx.system === 'CRM' && ctx.objects) {
+          for (const obj of ctx.objects) {
+            if (obj.objectType === 'Account' && obj.fields) {
+              const name = obj.fields.name || obj.fields.Name;
+              const id = obj.objectId || name;
+              if (name && !accounts.has(id)) {
+                accounts.set(id, { id, name, source: 'Gong' });
               }
             }
           }
         }
-
-        // Also extract from call title if it contains company references
-        if (call.metaData && call.metaData.title) {
-          // Store call titles for later matching if needed
-        }
       }
 
-      // Gong returns cursor at data.records.cursor
-      cursor = (data.records && data.records.cursor) || data.cursor || null;
-    } while (cursor);
-
-    // If no CRM accounts found, try the CRM objects endpoint
-    if (accounts.size === 0) {
-      try {
-        const crmData = await this._request('get', '/crm/object/list', null, {
-          objectType: 'Account',
-        });
-        for (const obj of (crmData.objects || [])) {
-          const name = (obj.fields && (obj.fields.name || obj.fields.Name)) || obj.objectId;
-          accounts.set(obj.objectId, { id: obj.objectId, name, source: 'Gong' });
+      // Domain fallback
+      if (party.emailAddress) {
+        const domain = party.emailAddress.split('@')[1];
+        if (domain && !domain.match(/(gmail|yahoo|hotmail|outlook|icloud|aol|proton)\./i)) {
+          const id = `domain:${domain}`;
+          if (!accounts.has(id)) {
+            accounts.set(id, { id, name: this._capitalize(domain.split('.')[0]), source: 'Gong' });
+          }
         }
-      } catch (e) {
-        // CRM endpoint may not be available
       }
     }
-
-    // Final fallback: extract unique external participant domains from calls
-    if (accounts.size === 0) {
-      accounts.set('all', { id: 'all', name: '(All Gong Calls)', source: 'Gong' });
-    }
-
-    return Array.from(accounts.values());
   }
 
   /**
@@ -144,10 +141,7 @@ class GongProvider extends BaseProvider {
 
     do {
       const payload = {
-        filter: {
-          fromDateTime: threeYearsAgo,
-          toDateTime: now,
-        },
+        filter: { fromDateTime: threeYearsAgo, toDateTime: now },
         contentSelector: {
           context: 'Extended',
           exposedFields: {
@@ -184,7 +178,6 @@ class GongProvider extends BaseProvider {
    * Fetch full call detail with transcript, speakers, and summaries.
    */
   async getCallDetail(callId) {
-    // Fetch call metadata and content
     const extensivePayload = {
       filter: { callIds: [callId] },
       contentSelector: {
@@ -297,7 +290,6 @@ class GongProvider extends BaseProvider {
             }
           }
         }
-        // Domain-based matching
         if (accountId.startsWith('domain:') && party.emailAddress) {
           const domain = party.emailAddress.split('@')[1];
           if (`domain:${domain}` === accountId) return true;
