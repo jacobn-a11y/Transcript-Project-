@@ -62,6 +62,21 @@ module.exports = function (describe, assert) {
       assert.ok(!p._callMatchesAccount(call, 'acc-999'));
     });
 
+    it('_callMatchesAccount() matches CRM account by name fallback', () => {
+      const call = {
+        parties: [{
+          affiliation: 'External',
+          context: [{
+            system: 'CRM',
+            objects: [{ objectId: 'acc-123', objectType: 'Account', fields: { name: 'Lionakis' } }],
+          }],
+        }],
+      };
+      // When account was discovered with name as ID (objectId missing during discovery)
+      assert.ok(p._callMatchesAccount(call, 'Lionakis'));
+      assert.ok(!p._callMatchesAccount(call, 'OtherCompany'));
+    });
+
     it('_getAccountNameFromCall() extracts CRM account name', () => {
       const call = {
         parties: [{

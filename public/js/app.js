@@ -276,13 +276,32 @@ async function pollProgress() {
 }
 
 function updateProgressUI(data) {
-  const pct = data.progress.totalCalls > 0
-    ? Math.round((data.progress.completedCalls / data.progress.totalCalls) * 100)
-    : 0;
+  const phase = data.progress.phase;
+  let pct = 0;
+  let progressText = '';
+
+  if (phase === 'fetching_calls') {
+    // Phase 1: scanning calls — totalCalls isn't known yet
+    const pages = data.progress.pagesScanned || 0;
+    const found = data.progress.callsFoundSoFar || 0;
+    progressText = pages > 0
+      ? `Scanning Gong calls (page ${pages}, ${found} matches found)...`
+      : 'Starting call scan...';
+  } else if (data.progress.totalCalls > 0) {
+    pct = Math.round((data.progress.completedCalls / data.progress.totalCalls) * 100);
+    progressText = `${phase}: ${data.progress.completedCalls} / ${data.progress.totalCalls} calls processed (${pct}%)`;
+  } else if (phase === 'generating') {
+    pct = 95;
+    progressText = 'Generating merged document...';
+  } else if (phase === 'done') {
+    pct = 100;
+    progressText = 'Complete!';
+  } else {
+    progressText = `${phase}: preparing...`;
+  }
 
   document.getElementById('merge-progress-fill').style.width = `${pct}%`;
-  document.getElementById('merge-progress-text').textContent =
-    `${data.progress.phase}: ${data.progress.completedCalls} / ${data.progress.totalCalls} calls processed (${pct}%)`;
+  document.getElementById('merge-progress-text').textContent = progressText;
 
   const statusEl = document.getElementById('merge-status');
   statusEl.textContent = data.status;

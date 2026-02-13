@@ -1,6 +1,9 @@
 const axios = require('axios');
 const BaseProvider = require('../base-provider');
 
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_CALL_PAGES = 100; // ~10,000 calls max (100 per page)
+
 class GongProvider extends BaseProvider {
   constructor(config) {
     super('Gong', config);
@@ -26,6 +29,7 @@ class GongProvider extends BaseProvider {
         data,
         params,
         headers: { 'Content-Type': 'application/json' },
+        timeout: REQUEST_TIMEOUT_MS,
       });
       return response.data;
     });
@@ -132,21 +136,31 @@ class GongProvider extends BaseProvider {
 
   /**
    * Fetch all calls associated with a given account.
+   *
+   * The Gong API does not support server-side filtering by account/company,
+   * so we must page through all calls and filter client-side.
+   *
+   * @param {string} accountId
+   * @param {object} [opts]
+   * @param {function} [opts.onProgress] - Called per page: ({ page, callsFound })
    */
-  async getCallsForAccount(accountId) {
+  async getCallsForAccount(accountId, { onProgress } = {}) {
     const calls = [];
     let cursor = null;
+    let page = 0;
     const now = new Date().toISOString();
     const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString();
 
     do {
+      page++;
+      if (onProgress) onProgress({ page, callsFound: calls.length });
+
       const payload = {
         filter: { fromDateTime: threeYearsAgo, toDateTime: now },
         contentSelector: {
           context: 'Extended',
           exposedFields: {
             parties: true,
-            content: { brief: true },
           },
         },
       };
@@ -169,7 +183,11 @@ class GongProvider extends BaseProvider {
       }
 
       cursor = (data.records && data.records.cursor) || data.cursor || null;
-    } while (cursor);
+    } while (cursor && page < MAX_CALL_PAGES);
+
+    if (cursor) {
+      console.warn(`Gong: Reached page limit (${MAX_CALL_PAGES}). Some older calls may not be included.`);
+    }
 
     return calls;
   }
@@ -287,6 +305,12 @@ class GongProvider extends BaseProvider {
           if (ctx.system === 'CRM' && ctx.objects) {
             for (const obj of ctx.objects) {
               if (obj.objectId === accountId) return true;
+              // Also match by account name (fallback when objectId was
+              // unavailable during account discovery)
+              if (obj.objectType === 'Account' && obj.fields) {
+                const name = obj.fields.name || obj.fields.Name;
+                if (name && name === accountId) return true;
+              }
             }
           }
         }

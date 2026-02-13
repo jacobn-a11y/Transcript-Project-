@@ -173,7 +173,17 @@ async function runMerge(sessionId, selectedAccounts, projectName) {
 
       try {
         addLog(sessionId, `Fetching calls for "${account.name}" from ${account.source}...`);
-        const calls = await provider.getCallsForAccount(account.id);
+        const calls = await provider.getCallsForAccount(account.id, {
+          onProgress: ({ page, callsFound }) => {
+            addLog(sessionId, `  Scanning page ${page}... (${callsFound} matching calls so far)`);
+            // Update progress so the frontend can show intermediate state
+            sessionManager.updateProgress(sessionId, {
+              phase: 'fetching_calls',
+              pagesScanned: page,
+              callsFoundSoFar: callsFound,
+            }).catch(() => {});
+          },
+        });
         addLog(sessionId, `Found ${calls.length} calls for "${account.name}"`, 'success');
         allCalls.push(...calls);
       } catch (e) {

@@ -1,6 +1,8 @@
 const axios = require('axios');
 const BaseProvider = require('../base-provider');
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
 class GrainProvider extends BaseProvider {
   constructor(config) {
     super('Grain', config);
@@ -24,6 +26,7 @@ class GrainProvider extends BaseProvider {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
+        timeout: REQUEST_TIMEOUT_MS,
       });
       return response.data;
     });
