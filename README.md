@@ -2,6 +2,12 @@
 
 Merge call transcripts from **Gong**, **Grain**, and other call recording platforms into a single chronological Markdown document.
 
+## Download
+
+**[Download for Mac (v1.0.0)](releases/Call-Transcript-Merger-1.0.0-mac.zip)** — Unzip and double-click to run.
+
+> First launch: macOS may block unsigned apps. Right-click the app > **Open**, or go to **System Settings > Privacy & Security > Open Anyway**.
+
 ## Features
 
 - **Gong integration** — Imports accounts, calls, transcripts, speaker info, and AI summaries via Gong API v2
@@ -88,7 +94,7 @@ The app automatically detects the lowest rate limit across all configured provid
 
 | Provider | Per-second limit | Daily limit |
 |----------|-----------------|-------------|
-| Gong     | 3 req/sec       | 10,000/day  |
+| Gong     | 1 req/sec       | ~10,000/day |
 | Grain    | Not published   | ~5 req/sec (conservative) |
 | Custom   | User-configured | User-configured |
 
