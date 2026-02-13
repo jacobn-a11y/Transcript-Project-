@@ -1,9 +1,10 @@
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const path = require('path');
 
 const PORT = process.env.PORT || 3847;
 let mainWindow;
 let server;
+let retryCount = 0;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,18 +21,24 @@ function createWindow() {
     },
   });
 
-  // Show the window once the page has actually rendered
+  // Show a loading screen immediately while the server starts
+  mainWindow.loadURL(`data:text/html,${encodeURIComponent(`
+    <!DOCTYPE html>
+    <html>
+    <head><style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+             display: flex; justify-content: center; align-items: center; height: 100vh;
+             margin: 0; background: #f8f9fb; color: #374151; }
+      .loading { text-align: center; }
+      h1 { font-size: 22px; margin-bottom: 8px; }
+      p { color: #6b7280; font-size: 14px; }
+    </style></head>
+    <body><div class="loading"><h1>Call Transcript Merger</h1><p>Starting up...</p></div></body>
+    </html>
+  `)}`);
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-  });
-
-  mainWindow.loadURL(`http://localhost:${PORT}`);
-
-  // If the page fails to load (server not ready), retry
-  mainWindow.webContents.on('did-fail-load', () => {
-    setTimeout(() => {
-      mainWindow.loadURL(`http://localhost:${PORT}`);
-    }, 500);
   });
 
   // Open external links in default browser
@@ -42,6 +49,22 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+}
+
+function loadApp() {
+  if (!mainWindow) return;
+
+  mainWindow.loadURL(`http://localhost:${PORT}`);
+
+  mainWindow.webContents.once('did-fail-load', () => {
+    retryCount++;
+    if (retryCount < 10) {
+      setTimeout(loadApp, 500);
+    } else {
+      dialog.showErrorBox('Startup Error',
+        'The app server failed to start. Try restarting the application.');
+    }
   });
 }
 
@@ -120,12 +143,18 @@ function buildMenu() {
 }
 
 app.whenReady().then(async () => {
-  // Start the Express server and wait for it to be listening
-  server = require('./server');
-  await server.ready;
-
   buildMenu();
-  createWindow();
+  createWindow(); // Show loading screen immediately
+
+  try {
+    // Start the Express server and wait for it to be listening
+    server = require('./server');
+    await server.ready;
+    // Server is ready — load the real app UI
+    loadApp();
+  } catch (e) {
+    dialog.showErrorBox('Startup Error', `Server failed to start: ${e.message}`);
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -135,6 +164,7 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (mainWindow === null) {
     createWindow();
+    if (server) loadApp();
   }
 });
 

@@ -4,7 +4,7 @@ Merge call transcripts from **Gong**, **Grain**, and other call recording platfo
 
 ## Download
 
-**[Download for Mac (v1.0.1)](releases/Call-Transcript-Merger-1.0.1-mac.zip)** — Unzip and double-click the `.app` to run.
+**[Download for Mac (v1.0.2)](releases/Call-Transcript-Merger-1.0.2-mac.zip)** — Unzip and double-click the `.app` to run.
 
 > **First launch on Mac:** macOS blocks unsigned apps. Open Terminal and run:
 > ```
