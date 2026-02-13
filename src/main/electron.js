@@ -1,14 +1,9 @@
-const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, shell } = require('electron');
 const path = require('path');
 
 const PORT = process.env.PORT || 3847;
 let mainWindow;
 let server;
-
-function startServer() {
-  // Import the express app (this also starts listening)
-  server = require('./server');
-}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -17,13 +12,27 @@ function createWindow() {
     minWidth: 700,
     minHeight: 500,
     title: 'Call Transcript Merger',
+    show: false,
+    backgroundColor: '#f8f9fb',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
 
+  // Show the window once the page has actually rendered
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
   mainWindow.loadURL(`http://localhost:${PORT}`);
+
+  // If the page fails to load (server not ready), retry
+  mainWindow.webContents.on('did-fail-load', () => {
+    setTimeout(() => {
+      mainWindow.loadURL(`http://localhost:${PORT}`);
+    }, 500);
+  });
 
   // Open external links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -110,8 +119,11 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-app.whenReady().then(() => {
-  startServer();
+app.whenReady().then(async () => {
+  // Start the Express server and wait for it to be listening
+  server = require('./server');
+  await server.ready;
+
   buildMenu();
   createWindow();
 });

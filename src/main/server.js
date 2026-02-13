@@ -443,4 +443,10 @@ const server = app.listen(PORT, '127.0.0.1', () => {
   console.log(`Call Transcript Merger running at http://localhost:${PORT}`);
 });
 
+// Export a ready promise so Electron can wait for the server to be listening
+const ready = new Promise((resolve) => {
+  server.on('listening', resolve);
+});
+
 module.exports = server;
+module.exports.ready = ready;

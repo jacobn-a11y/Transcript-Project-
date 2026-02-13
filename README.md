@@ -4,9 +4,15 @@ Merge call transcripts from **Gong**, **Grain**, and other call recording platfo
 
 ## Download
 
-**[Download for Mac (v1.0.0)](releases/Call-Transcript-Merger-1.0.0-mac.zip)** — Unzip and double-click to run.
+**[Download for Mac (v1.0.1)](releases/Call-Transcript-Merger-1.0.1-mac.zip)** — Unzip and double-click the `.app` to run.
 
-> First launch: macOS may block unsigned apps. Right-click the app > **Open**, or go to **System Settings > Privacy & Security > Open Anyway**.
+> **First launch on Mac:** macOS blocks unsigned apps. Open Terminal and run:
+> ```
+> xattr -cr ~/Downloads/Call\ Transcript\ Merger.app
+> ```
+> Then double-click the app. You only need to do this once.
+>
+> **To build a fully signed app** (no Gatekeeper warnings at all), clone the repo on your Mac and run `./scripts/build-mac.sh`. See [Building a signed Mac app](#building-a-signed-mac-app) below.
 
 ## Features
 
@@ -18,7 +24,7 @@ Merge call transcripts from **Gong**, **Grain**, and other call recording platfo
 - **Rich metadata** — Speaker info, call summaries, key points, and outlines above each transcript
 - **Word count** — Displayed in UI and in the output filename
 - **Pause/resume** — Sessions save progress; resume after API rate limits reset
-- **Rate limiting** — Automatically uses the lowest per-second limit across all configured providers (Gong: 3/sec)
+- **Rate limiting** — Automatically uses the lowest per-second limit across all configured providers
 - **Output** — Markdown file saved to your Downloads folder
 
 ## Quick Start
@@ -39,11 +45,25 @@ npm install
 npx electron .
 ```
 
-### Build packaged Mac app
+## Building a signed Mac app
+
+For a Mac `.app` that opens without any Gatekeeper warnings, **build it on your Mac**:
 
 ```bash
-npm install
-npm run build
+git clone <this-repo>
+cd Transcript-Project-
+./scripts/build-mac.sh
+```
+
+This produces a `.dmg` and `.zip` in the `dist/` folder. The app will be ad-hoc signed so it works on your machine without the `xattr` workaround.
+
+For full notarization (other people can open it without warnings too), set up a free [Apple Developer account](https://developer.apple.com) and run:
+
+```bash
+export APPLE_ID="you@icloud.com"
+export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+export APPLE_TEAM_ID="XXXXXXXXXX"
+./scripts/build-mac.sh
 ```
 
 ## Setup
@@ -86,6 +106,12 @@ public/
   index.html            Single-page UI
   css/style.css         Styles
   js/app.js             Frontend logic
+scripts/
+  build-mac.sh          One-command Mac build with signing + notarization
+  notarize.js           Electron-builder afterSign hook for Apple notarization
+build/
+  entitlements.mac.plist           macOS entitlements for hardened runtime
+  entitlements.mac.inherit.plist   Inherited entitlements for child processes
 ```
 
 ## API Rate Limits

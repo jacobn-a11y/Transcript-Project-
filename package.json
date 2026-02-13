@@ -1,13 +1,14 @@
 {
   "name": "call-transcript-merger",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Merge call transcripts from Gong, Grain, and other call recording platforms into a single chronological Markdown document.",
+  "author": "Call Transcript Merger",
   "main": "src/main/electron.js",
   "scripts": {
     "start": "node src/main/server.js",
     "electron": "electron .",
     "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
+    "build:mac": "electron-builder --mac --config.mac.target=dmg --config.mac.target=zip",
     "build:linux": "electron-builder --linux",
     "build:win": "electron-builder --win",
     "test": "node tests/run.js"
@@ -19,15 +20,37 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.5.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.9.0"
   },
   "build": {
     "appId": "com.transcript-merger.app",
     "productName": "Call Transcript Merger",
+    "afterSign": "scripts/notarize.js",
     "mac": {
       "category": "public.app-category.business",
-      "target": ["dir", "zip"]
+      "target": ["zip", "dir"],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "type": "distribution",
+      "darkModeSupport": true,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "This app needs to control other applications for automation.",
+        "NSRequiresAquaSystemAppearance": false
+      }
+    },
+    "dmg": {
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     },
     "linux": {
       "target": ["AppImage"],
