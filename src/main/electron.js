@@ -15,6 +15,7 @@ function createWindow() {
     title: 'Call Transcript Merger',
     show: false,
     backgroundColor: '#f8f9fb',
+    icon: path.join(__dirname, '..', '..', 'build', 'icon.png'),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

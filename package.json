@@ -29,6 +29,7 @@
     "productName": "Call Transcript Merger",
     "afterSign": "scripts/notarize.js",
     "mac": {
+      "icon": "build/icon.png",
       "category": "public.app-category.business",
       "target": ["zip", "dir"],
       "hardenedRuntime": true,
@@ -53,10 +54,12 @@
       }
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": ["AppImage"],
       "category": "Office"
     },
     "win": {
+      "icon": "build/icon.ico",
       "target": ["nsis"]
     },
     "files": [
