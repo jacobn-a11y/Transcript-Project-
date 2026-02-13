@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Call Transcript Merger</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Call Transcript Merger</h1>
+        <div class="subtitle">Merge transcripts from Gong, Grain, and other platforms</div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-outline btn-sm" onclick="showSessions()">Saved Sessions</button>
+      </div>
+    </header>
+
+    <!-- Step indicator -->
+    <div class="steps" id="steps">
+      <div class="step" data-step="1"></div>
+      <div class="step" data-step="2"></div>
+      <div class="step" data-step="3"></div>
+      <div class="step" data-step="4"></div>
+      <div class="step" data-step="5"></div>
+    </div>
+
+    <!-- STEP 1: Configure Providers -->
+    <div id="step-1" class="card">
+      <h2>Step 1: Configure API Connections</h2>
+      <p>Connect to your call recording platforms. Enable the ones you want to import from.</p>
+
+      <!-- Primary schema selection -->
+      <div class="form-group" style="margin-bottom: 20px;">
+        <label>Primary Field Schema</label>
+        <p style="margin-bottom: 6px;">Custom providers will map their fields to this schema.</p>
+        <select id="primarySchema">
+          <option value="gong">Gong (default)</option>
+          <option value="grain">Grain</option>
+        </select>
+      </div>
+
+      <!-- Gong -->
+      <div class="card" style="border-left: 3px solid #dc2626;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <h2 style="margin-bottom:0;">Gong</h2>
+          <label style="display:flex; align-items:center; gap:6px; margin:0;">
+            <input type="checkbox" id="gong-enabled"> Enable
+          </label>
+        </div>
+        <div id="gong-config" class="hidden" style="margin-top: 12px;">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Access Key</label>
+              <input type="text" id="gong-accessKey" placeholder="Your Gong API access key">
+            </div>
+            <div class="form-group">
+              <label>Access Key Secret</label>
+              <input type="password" id="gong-accessKeySecret" placeholder="Your Gong API secret">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Base URL (optional)</label>
+            <input type="url" id="gong-baseUrl" placeholder="https://api.gong.io/v2" value="https://api.gong.io/v2">
+          </div>
+          <button class="btn btn-sm btn-outline" onclick="testConnection('gong')">Test Connection</button>
+          <span id="gong-status" style="margin-left: 8px; font-size: 13px;"></span>
+        </div>
+      </div>
+
+      <!-- Grain -->
+      <div class="card" style="border-left: 3px solid #16a34a;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <h2 style="margin-bottom:0;">Grain</h2>
+          <label style="display:flex; align-items:center; gap:6px; margin:0;">
+            <input type="checkbox" id="grain-enabled"> Enable
+          </label>
+        </div>
+        <div id="grain-config" class="hidden" style="margin-top: 12px;">
+          <div class="form-group">
+            <label>API Key / Bearer Token</label>
+            <input type="password" id="grain-apiKey" placeholder="Your Grain API key or bearer token">
+          </div>
+          <div class="form-group">
+            <label>Base URL (optional)</label>
+            <input type="url" id="grain-baseUrl" placeholder="https://api.grain.com/_/public-api" value="https://api.grain.com/_/public-api">
+          </div>
+          <button class="btn btn-sm btn-outline" onclick="testConnection('grain')">Test Connection</button>
+          <span id="grain-status" style="margin-left: 8px; font-size: 13px;"></span>
+        </div>
+      </div>
+
+      <!-- Custom Provider -->
+      <div class="card" style="border-left: 3px solid #4f46e5;">
+        <div style="display:flex; align-items:center; justify-content:space-between;">
+          <h2 style="margin-bottom:0;">Custom Provider</h2>
+          <button class="btn btn-sm btn-outline" onclick="showCustomWizard()">+ Add Custom</button>
+        </div>
+        <div id="custom-providers-list" style="margin-top: 8px;"></div>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="goToStep(2)">Next: Select Accounts</button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Select Accounts -->
+    <div id="step-2" class="card hidden">
+      <h2>Step 2: Select Accounts / Companies</h2>
+      <p>Choose one or more accounts to merge. Duplicates across platforms can be selected together.</p>
+
+      <div style="margin-bottom: 12px;">
+        <input type="text" id="account-search" placeholder="Search accounts..." oninput="filterAccounts()">
+      </div>
+
+      <div class="account-list" id="account-list">
+        <div class="progress-text" style="padding: 20px; text-align: center;">Loading accounts...</div>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-outline" onclick="goToStep(1)">Back</button>
+        <button class="btn btn-primary" onclick="goToStep(3)">Next: Name Project</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Project Settings -->
+    <div id="step-3" class="card hidden">
+      <h2>Step 3: Project Settings</h2>
+      <p>Name your project and configure output options.</p>
+
+      <div class="form-group">
+        <label>Project Name</label>
+        <input type="text" id="projectName" placeholder="e.g., Acme Corp Call History" value="">
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-outline" onclick="goToStep(2)">Back</button>
+        <button class="btn btn-primary" onclick="startMerge()">Start Merge</button>
+      </div>
+    </div>
+
+    <!-- STEP 4: Progress -->
+    <div id="step-4" class="card hidden">
+      <h2>Step 4: Fetching & Merging</h2>
+
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+        <span>Status:</span>
+        <span id="merge-status" class="status-badge status-active">Active</span>
+      </div>
+
+      <div class="progress-bar"><div class="fill" id="merge-progress-fill" style="width: 0%"></div></div>
+      <div class="progress-text" id="merge-progress-text">Preparing...</div>
+
+      <div class="log" id="merge-log"></div>
+
+      <div class="btn-group">
+        <button class="btn btn-warning" id="btn-pause" onclick="pauseMerge()">Pause</button>
+        <button class="btn btn-success hidden" id="btn-resume" onclick="resumeMerge()">Resume</button>
+        <button class="btn btn-outline" id="btn-save-session" onclick="saveCurrentSession()">Save Session</button>
+      </div>
+    </div>
+
+    <!-- STEP 5: Complete -->
+    <div id="step-5" class="card hidden">
+      <h2>Step 5: Complete</h2>
+      <p id="complete-message">Your merged transcript has been saved.</p>
+
+      <div id="complete-stats" style="margin: 16px 0;"></div>
+
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="downloadMarkdown()">Download Markdown</button>
+        <button class="btn btn-outline" onclick="goToStep(1)">New Project</button>
+      </div>
+    </div>
+
+    <!-- Sessions Modal -->
+    <div id="sessions-modal" class="card hidden" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:600px; max-height:80vh; overflow-y:auto; z-index:100; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px;">
+        <h2 style="margin-bottom:0;">Saved Sessions</h2>
+        <button class="btn btn-sm btn-outline" onclick="closeSessions()">Close</button>
+      </div>
+      <div id="sessions-list"></div>
+    </div>
+    <div id="sessions-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:99;" onclick="closeSessions()"></div>
+
+    <!-- Custom Provider Wizard Modal -->
+    <div id="custom-wizard" class="card hidden" style="position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:700px; max-height:85vh; overflow-y:auto; z-index:100; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+      <h2>Setup Custom Provider</h2>
+      <p>Connect any call recording platform by mapping its API to the standard schema.</p>
+
+      <div class="form-group">
+        <label>Provider Name</label>
+        <input type="text" id="cw-name" placeholder="e.g., Fireflies.ai">
+      </div>
+
+      <div class="form-group">
+        <label>Base URL</label>
+        <input type="url" id="cw-baseUrl" placeholder="https://api.example.com/v1">
+      </div>
+
+      <div class="form-group">
+        <label>Authentication Type</label>
+        <select id="cw-authType" onchange="updateCustomAuthFields()">
+          <option value="bearer">Bearer Token</option>
+          <option value="basic">Basic Auth (username/password)</option>
+          <option value="apikey-header">API Key in Header</option>
+          <option value="apikey-query">API Key in Query String</option>
+        </select>
+      </div>
+
+      <div id="cw-auth-fields">
+        <div class="form-group">
+          <label>Token / API Key</label>
+          <input type="password" id="cw-authToken" placeholder="API key or bearer token">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Rate Limit (requests per second)</label>
+        <input type="number" id="cw-rateLimit" value="3" min="1" max="100">
+      </div>
+
+      <h2 style="margin-top: 16px;">Pagination</h2>
+      <div class="form-group">
+        <label>Pagination Type</label>
+        <select id="cw-paginationType">
+          <option value="none">None</option>
+          <option value="cursor">Cursor-based</option>
+          <option value="page">Page number</option>
+          <option value="offset">Offset/Limit</option>
+        </select>
+      </div>
+
+      <h2 style="margin-top: 16px;">Endpoints & Field Mapping</h2>
+      <p>Define the API paths and map response fields using dot-notation (e.g., <code>data.accounts</code>).</p>
+
+      <div class="wizard-field">
+        <h2>List Accounts</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Path</label>
+            <input type="text" id="cw-accounts-path" placeholder="/accounts">
+          </div>
+          <div class="form-group">
+            <label>Array Path in Response</label>
+            <input type="text" id="cw-accounts-arrayPath" placeholder="data.accounts">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>ID Field</label>
+            <input type="text" id="cw-accounts-id" placeholder="id">
+          </div>
+          <div class="form-group">
+            <label>Name Field</label>
+            <input type="text" id="cw-accounts-name" placeholder="name">
+          </div>
+        </div>
+      </div>
+
+      <div class="wizard-field">
+        <h2>List Calls</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Path (use {accountId})</label>
+            <input type="text" id="cw-calls-path" placeholder="/accounts/{accountId}/calls">
+          </div>
+          <div class="form-group">
+            <label>Array Path in Response</label>
+            <input type="text" id="cw-calls-arrayPath" placeholder="data.calls">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>ID Field</label>
+            <input type="text" id="cw-calls-id" placeholder="id">
+          </div>
+          <div class="form-group">
+            <label>Title Field</label>
+            <input type="text" id="cw-calls-title" placeholder="title">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date Field</label>
+            <input type="text" id="cw-calls-date" placeholder="created_at">
+          </div>
+          <div class="form-group">
+            <label>Duration Field (seconds)</label>
+            <input type="text" id="cw-calls-duration" placeholder="duration">
+          </div>
+        </div>
+      </div>
+
+      <div class="wizard-field">
+        <h2>Call Detail / Transcript</h2>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Path (use {callId})</label>
+            <input type="text" id="cw-detail-path" placeholder="/calls/{callId}">
+          </div>
+          <div class="form-group">
+            <label>Title Field</label>
+            <input type="text" id="cw-detail-title" placeholder="title">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date Field</label>
+            <input type="text" id="cw-detail-date" placeholder="created_at">
+          </div>
+          <div class="form-group">
+            <label>Summary Field</label>
+            <input type="text" id="cw-detail-summary" placeholder="summary">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Speakers Array Path</label>
+          <input type="text" id="cw-detail-speakersPath" placeholder="participants">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Speaker Name Field</label>
+            <input type="text" id="cw-detail-speakerName" placeholder="name">
+          </div>
+          <div class="form-group">
+            <label>Speaker Email Field</label>
+            <input type="text" id="cw-detail-speakerEmail" placeholder="email">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Transcript Array Path</label>
+          <input type="text" id="cw-detail-transcriptPath" placeholder="transcript.segments">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Transcript Speaker Field</label>
+            <input type="text" id="cw-detail-transcriptSpeaker" placeholder="speaker">
+          </div>
+          <div class="form-group">
+            <label>Transcript Text Field</label>
+            <input type="text" id="cw-detail-transcriptText" placeholder="text">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Transcript Start (ms) Field</label>
+            <input type="text" id="cw-detail-transcriptStart" placeholder="start_ms">
+          </div>
+          <div class="form-group">
+            <label>Transcript End (ms) Field</label>
+            <input type="text" id="cw-detail-transcriptEnd" placeholder="end_ms">
+          </div>
+        </div>
+      </div>
+
+      <div class="btn-group">
+        <button class="btn btn-outline" onclick="closeCustomWizard()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveCustomProvider()">Save Provider</button>
+      </div>
+    </div>
+    <div id="custom-wizard-overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:99;" onclick="closeCustomWizard()"></div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+{
+  "name": "call-transcript-merger",
+  "version": "1.0.0",
+  "description": "Merge call transcripts from Gong, Grain, and other call recording platforms into a single chronological Markdown document.",
+  "main": "src/main/electron.js",
+  "scripts": {
+    "start": "node src/main/server.js",
+    "electron": "electron .",
+    "build": "electron-builder --mac"
+  },
+  "dependencies": {
+    "axios": "^1.13.5",
+    "bottleneck": "^2.19.5",
+    "electron-store": "^8.2.0",
+    "express": "^4.22.1",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.0"
+  },
+  "build": {
+    "appId": "com.transcript-merger.app",
+    "productName": "Call Transcript Merger",
+    "mac": {
+      "category": "public.app-category.business"
+    },
+    "files": [
+      "src/**/*",
+      "public/**/*",
+      "package.json"
+    ]
+  }
+}
