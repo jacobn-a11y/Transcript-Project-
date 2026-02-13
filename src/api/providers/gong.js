@@ -26,6 +26,7 @@ class GongProvider extends BaseProvider {
         data,
         params,
         headers: { 'Content-Type': 'application/json' },
+        timeout: 30000,
       });
       return response.data;
     });
@@ -132,14 +133,22 @@ class GongProvider extends BaseProvider {
 
   /**
    * Fetch all calls associated with a given account.
+   * @param {string} accountId
+   * @param {object} [options]
+   * @param {function} [options.onProgress] - Called with (message) on each page
    */
-  async getCallsForAccount(accountId) {
+  async getCallsForAccount(accountId, options = {}) {
+    const onProgress = options.onProgress || (() => {});
     const calls = [];
     let cursor = null;
+    let page = 0;
     const now = new Date().toISOString();
     const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString();
 
     do {
+      page++;
+      onProgress(`Scanning Gong calls (page ${page}, ${calls.length} matches so far)...`);
+
       const payload = {
         filter: { fromDateTime: threeYearsAgo, toDateTime: now },
         contentSelector: {

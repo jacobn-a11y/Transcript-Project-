@@ -20,7 +20,8 @@ class SessionManager {
   constructor() {
     this._locks = new Map(); // sessionId -> Promise chain for serialized writes
     if (!fs.existsSync(SESSIONS_DIR)) {
-      fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+      // M2: Restrictive permissions — owner-only access (0700)
+      fs.mkdirSync(SESSIONS_DIR, { recursive: true, mode: 0o700 });
     }
   }
 
@@ -169,7 +170,8 @@ class SessionManager {
     const filePath = path.join(SESSIONS_DIR, `${session.id}.json`);
     const tmpPath = `${filePath}.${process.pid}.tmp`;
     try {
-      fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
+      // M2: Restrictive permissions — owner-only read/write (0600)
+      fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), { encoding: 'utf-8', mode: 0o600 });
       fs.renameSync(tmpPath, filePath);
     } catch (e) {
       // Clean up tmp file on failure

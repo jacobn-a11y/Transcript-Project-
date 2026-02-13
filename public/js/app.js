@@ -10,6 +10,19 @@ let toastStack = 0;
 
 const API = '';
 
+// H2: Read auth token from server-injected meta tag and include in all API requests
+const API_TOKEN = document.querySelector('meta[name="api-token"]')?.content || '';
+const _originalFetch = window.fetch;
+window.fetch = function(url, options = {}) {
+  if (typeof url === 'string' && url.includes('/api/')) {
+    options.headers = {
+      ...(options.headers || {}),
+      'X-Auth-Token': API_TOKEN,
+    };
+  }
+  return _originalFetch.call(this, url, options);
+};
+
 /* ============= Navigation ============= */
 
 function goToStep(step) {
@@ -296,7 +309,7 @@ function updateProgressUI(data) {
   if (data.logs && data.logs.length > 0) {
     const logEl = document.getElementById('merge-log');
     logEl.innerHTML = data.logs.map(l =>
-      `<div class="entry ${l.level || ''}">[${l.time || ''}] ${escapeHtml(l.message)}</div>`
+      `<div class="entry ${escapeAttr(l.level || '')}">[${escapeHtml(l.time || '')}] ${escapeHtml(l.message)}</div>`
     ).join('');
     logEl.scrollTop = logEl.scrollHeight;
   }
@@ -352,7 +365,7 @@ function showCompleteStats(data) {
 
 async function downloadMarkdown() {
   if (!currentSessionId) return;
-  window.location.href = `${API}/api/merge/download/${currentSessionId}`;
+  window.location.href = `${API}/api/merge/download/${currentSessionId}?_token=${encodeURIComponent(API_TOKEN)}`;
 }
 
 /* ============= Sessions ============= */
@@ -414,7 +427,7 @@ async function resumeSession(sessionId) {
 }
 
 async function downloadSession(sessionId) {
-  window.location.href = `${API}/api/merge/download/${sessionId}`;
+  window.location.href = `${API}/api/merge/download/${sessionId}?_token=${encodeURIComponent(API_TOKEN)}`;
 }
 
 async function deleteSession(sessionId) {

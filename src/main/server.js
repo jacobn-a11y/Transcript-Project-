@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 
 const GongProvider = require('../api/providers/gong');
 const GrainProvider = require('../api/providers/grain');
@@ -13,10 +14,108 @@ const SessionManager = require('../services/session');
 const app = express();
 const PORT = process.env.PORT || 3847;
 
+// H2: Per-session auth token — prevents unauthorized local processes from using the API
+const AUTH_TOKEN = crypto.randomBytes(32).toString('hex');
+
+// H3: Host header validation — prevents DNS rebinding attacks
+app.use((req, res, next) => {
+  const host = req.headers.host;
+  const allowed = [`localhost:${PORT}`, `127.0.0.1:${PORT}`, 'localhost', '127.0.0.1'];
+  if (!host || !allowed.includes(host)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  next();
+});
+
+// M7: Content-Security-Policy header
+app.use((req, res, next) => {
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; frame-src 'none';"
+  );
+  next();
+});
+
 app.use(express.json({ limit: '2mb' }));
+
+// H2: Serve index.html with auth token injected (before static middleware)
+app.get('/', (req, res) => {
+  const htmlPath = path.join(__dirname, '..', '..', 'public', 'index.html');
+  let html = fs.readFileSync(htmlPath, 'utf-8');
+  html = html.replace('</head>', `<meta name="api-token" content="${AUTH_TOKEN}">\n</head>`);
+  res.type('html').send(html);
+});
+
 app.use(express.static(path.join(__dirname, '..', '..', 'public')));
 
+// H2: Auth middleware for all API endpoints
+app.use('/api', (req, res, next) => {
+  const token = req.headers['x-auth-token'] || req.query._token;
+  if (token !== AUTH_TOKEN) {
+    return res.status(403).json({ error: 'Invalid or missing auth token.' });
+  }
+  next();
+});
+
+// L3: Simple rate limiting on incoming endpoints (120 requests per minute)
+const requestCounts = new Map();
+app.use('/api', (req, res, next) => {
+  const now = Date.now();
+  const windowStart = now - 60000;
+  const timestamps = (requestCounts.get('global') || []).filter(t => t > windowStart);
+  if (timestamps.length >= 120) {
+    return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  }
+  timestamps.push(now);
+  requestCounts.set('global', timestamps);
+  next();
+});
+
 const sessionManager = new SessionManager();
+
+// H1: SSRF protection — block requests to private/internal networks
+function isPrivateUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block known private hostnames
+    if (['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::1]'].includes(hostname)) return true;
+
+    // Block private IP ranges
+    const ipParts = hostname.split('.').map(Number);
+    if (ipParts.length === 4 && ipParts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+      if (ipParts[0] === 10) return true;                                       // 10.0.0.0/8
+      if (ipParts[0] === 172 && ipParts[1] >= 16 && ipParts[1] <= 31) return true; // 172.16.0.0/12
+      if (ipParts[0] === 192 && ipParts[1] === 168) return true;                // 192.168.0.0/16
+      if (ipParts[0] === 169 && ipParts[1] === 254) return true;                // 169.254.0.0/16
+      if (ipParts[0] === 0) return true;                                         // 0.0.0.0/8
+    }
+
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function validateBaseUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return false;
+  try {
+    const parsed = new URL(urlStr);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+    if (isPrivateUrl(urlStr)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// L5: Sanitize error messages to avoid leaking internal details
+function sanitizeError(message) {
+  if (!message || typeof message !== 'string') return 'An error occurred.';
+  // Strip file paths
+  return message.replace(/\/[^\s:'"]+/g, '[path]').substring(0, 200);
+}
 
 // In-memory state
 let currentConfig = null;
@@ -27,20 +126,39 @@ let mergeAbort = {};    // sessionId -> boolean (flag to stop processing)
 /* ============= Config ============= */
 
 app.post('/api/config', (req, res) => {
-  currentConfig = req.body;
+  // M3: Basic schema validation
+  const body = req.body;
+  if (!body || typeof body !== 'object' || !body.providers || typeof body.providers !== 'object') {
+    return res.status(400).json({ error: 'Invalid config: providers object is required.' });
+  }
+
+  // M1: Clear old provider references before reconfiguring
+  currentConfig = null;
   providers = {};
+
+  currentConfig = body;
 
   // Determine the lowest rate limit across all enabled providers
   const rateLimits = [];
 
   if (currentConfig.providers && currentConfig.providers.gong) {
-    const p = new GongProvider(currentConfig.providers.gong);
+    // H1: Validate Gong base URL if user-provided
+    const gongCfg = currentConfig.providers.gong;
+    if (gongCfg.baseUrl && !validateBaseUrl(gongCfg.baseUrl)) {
+      return res.status(400).json({ error: 'Invalid Gong base URL.' });
+    }
+    const p = new GongProvider(gongCfg);
     rateLimits.push(p.getRateLimit());
     providers.gong = p;
   }
 
   if (currentConfig.providers && currentConfig.providers.grain) {
-    const p = new GrainProvider(currentConfig.providers.grain);
+    // H1: Validate Grain base URL if user-provided
+    const grainCfg = currentConfig.providers.grain;
+    if (grainCfg.baseUrl && !validateBaseUrl(grainCfg.baseUrl)) {
+      return res.status(400).json({ error: 'Invalid Grain base URL.' });
+    }
+    const p = new GrainProvider(grainCfg);
     rateLimits.push(p.getRateLimit());
     providers.grain = p;
   }
@@ -49,6 +167,10 @@ app.post('/api/config', (req, res) => {
   if (currentConfig.providers) {
     for (const [key, cfg] of Object.entries(currentConfig.providers)) {
       if (key.startsWith('custom:')) {
+        // H1: Validate custom provider base URL
+        if (!cfg.baseUrl || !validateBaseUrl(cfg.baseUrl)) {
+          return res.status(400).json({ error: `Invalid base URL for custom provider "${key}".` });
+        }
         const p = new CustomProvider(cfg);
         rateLimits.push(p.getRateLimit());
         providers[key] = p;
@@ -81,7 +203,7 @@ app.get('/api/test/:provider', async (req, res) => {
     const result = await provider.testConnection();
     res.json(result);
   } catch (e) {
-    res.json({ success: false, message: e.message });
+    res.json({ success: false, message: sanitizeError(e.message) });
   }
 });
 
@@ -173,7 +295,9 @@ async function runMerge(sessionId, selectedAccounts, projectName) {
 
       try {
         addLog(sessionId, `Fetching calls for "${account.name}" from ${account.source}...`);
-        const calls = await provider.getCallsForAccount(account.id);
+        const calls = await provider.getCallsForAccount(account.id, {
+          onProgress: (msg) => addLog(sessionId, msg),
+        });
         addLog(sessionId, `Found ${calls.length} calls for "${account.name}"`, 'success');
         allCalls.push(...calls);
       } catch (e) {
@@ -362,7 +486,7 @@ app.get('/api/merge/progress/:sessionId', (req, res) => {
       logs: (mergeLogs[session.id] || []).slice(-100),
     });
   } catch (e) {
-    res.status(404).json({ error: e.message });
+    res.status(404).json({ error: sanitizeError(e.message) });
   }
 });
 
@@ -374,7 +498,7 @@ app.post('/api/merge/pause/:sessionId', async (req, res) => {
     await sessionManager.pause(req.params.sessionId, 'Paused by user.');
     res.json({ success: true });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(400).json({ error: sanitizeError(e.message) });
   }
 });
 
@@ -393,7 +517,7 @@ app.post('/api/merge/resume/:sessionId', async (req, res) => {
       await sessionManager.update(sessionId, { status: 'error', error: e.message });
     });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(400).json({ error: sanitizeError(e.message) });
   }
 });
 
@@ -405,18 +529,26 @@ app.get('/api/merge/download/:sessionId', (req, res) => {
     if (!session.result || !session.result.filePath) {
       return res.status(404).json({ error: 'No output file found for this session.' });
     }
-    if (!fs.existsSync(session.result.filePath)) {
+
+    // M6: Validate filePath is within the Downloads directory
+    const downloadsDir = path.join(os.homedir(), 'Downloads');
+    const resolvedPath = path.resolve(session.result.filePath);
+    if (!resolvedPath.startsWith(downloadsDir + path.sep) && resolvedPath !== downloadsDir) {
+      return res.status(403).json({ error: 'File path is outside the allowed directory.' });
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
       // Regenerate
       const merger = new TranscriptMerger(session.progress.completedDetails, {
         projectName: session.projectName,
         selectedAccounts: session.selectedAccounts,
       });
       const { markdown } = merger.generate();
-      fs.writeFileSync(session.result.filePath, markdown, 'utf-8');
+      fs.writeFileSync(resolvedPath, markdown, 'utf-8');
     }
-    res.download(session.result.filePath, session.result.fileName);
+    res.download(resolvedPath, session.result.fileName);
   } catch (e) {
-    res.status(404).json({ error: e.message });
+    res.status(404).json({ error: sanitizeError(e.message) });
   }
 });
 
@@ -432,7 +564,7 @@ app.delete('/api/sessions/:sessionId', (req, res) => {
     sessionManager.delete(req.params.sessionId);
     res.json({ success: true });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(400).json({ error: sanitizeError(e.message) });
   }
 });
 

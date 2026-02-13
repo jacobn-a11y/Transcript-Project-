@@ -24,6 +24,7 @@ class GrainProvider extends BaseProvider {
           'Authorization': `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
+        timeout: 30000,
       });
       return response.data;
     });

@@ -50,8 +50,9 @@ class TranscriptMerger {
     sorted.forEach((call, idx) => {
       const num = idx + 1;
       const dateStr = this._formatDate(call.date);
+      const safeTitle = this._sanitize(call.title);
       const anchor = this._makeAnchor(num, call.title);
-      lines.push(`${num}. [${dateStr} — ${call.title}](#${anchor}) *(${call.source})*`);
+      lines.push(`${num}. [${dateStr} — ${safeTitle}](#${anchor}) *(${this._sanitize(call.source)})*`);
     });
     lines.push('');
     lines.push('---');
@@ -60,16 +61,16 @@ class TranscriptMerger {
     // Each call
     sorted.forEach((call, idx) => {
       const num = idx + 1;
-      lines.push(`## ${num}. ${call.title}`);
+      lines.push(`## ${num}. ${this._sanitize(call.title)}`);
       lines.push('');
 
       // Metadata table
       lines.push('| Field | Value |');
       lines.push('|-------|-------|');
       lines.push(`| **Date** | ${this._formatDate(call.date)} |`);
-      lines.push(`| **Source** | ${call.source} |`);
+      lines.push(`| **Source** | ${this._sanitize(call.source)} |`);
       if (call.accountName) {
-        lines.push(`| **Account** | ${call.accountName} |`);
+        lines.push(`| **Account** | ${this._sanitize(call.accountName)} |`);
       }
       if (call.duration) {
         lines.push(`| **Duration** | ${this._formatDuration(call.duration)} |`);
@@ -82,9 +83,9 @@ class TranscriptMerger {
         lines.push('');
         for (const speaker of call.speakers) {
           const roleTag = speaker.role === 'internal' ? '🏢' : '👤';
-          const parts = [`${roleTag} **${speaker.name}**`];
-          if (speaker.title) parts.push(`— ${speaker.title}`);
-          if (speaker.email) parts.push(`(${speaker.email})`);
+          const parts = [`${roleTag} **${this._sanitize(speaker.name)}**`];
+          if (speaker.title) parts.push(`— ${this._sanitize(speaker.title)}`);
+          if (speaker.email) parts.push(`(${this._sanitize(speaker.email)})`);
           lines.push(`- ${parts.join(' ')}`);
         }
         lines.push('');
@@ -94,7 +95,7 @@ class TranscriptMerger {
       if (call.summary) {
         lines.push('### Summary');
         lines.push('');
-        lines.push(call.summary);
+        lines.push(this._sanitize(call.summary));
         lines.push('');
       }
 
@@ -102,7 +103,7 @@ class TranscriptMerger {
       if (call.keyPoints) {
         lines.push('### Key Points');
         lines.push('');
-        lines.push(call.keyPoints);
+        lines.push(this._sanitize(call.keyPoints));
         lines.push('');
       }
 
@@ -110,7 +111,7 @@ class TranscriptMerger {
       if (call.outline) {
         lines.push('### Outline');
         lines.push('');
-        lines.push(call.outline);
+        lines.push(this._sanitize(call.outline));
         lines.push('');
       }
 
@@ -124,10 +125,10 @@ class TranscriptMerger {
           if (entry.speaker !== lastSpeaker) {
             if (lastSpeaker !== null) lines.push('');
             const timeStr = entry.startMs > 0 ? ` *(${this._formatMs(entry.startMs)})*` : '';
-            lines.push(`**${entry.speaker}**${timeStr}:`);
+            lines.push(`**${this._sanitize(entry.speaker)}**${timeStr}:`);
             lastSpeaker = entry.speaker;
           }
-          lines.push(`${entry.text}`);
+          lines.push(`${this._sanitize(entry.text)}`);
         }
         lines.push('');
       } else {
@@ -182,6 +183,12 @@ class TranscriptMerger {
 
   _makeAnchor(num, title) {
     return `${num}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`;
+  }
+
+  // L4: Strip HTML tags from API content to prevent XSS when Markdown is rendered
+  _sanitize(str) {
+    if (!str || typeof str !== 'string') return str;
+    return str.replace(/<[^>]*>/g, '');
   }
 
   _countWords(text) {

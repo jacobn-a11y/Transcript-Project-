@@ -33,7 +33,13 @@ class CustomProvider extends BaseProvider {
     if (this.authType === 'bearer') {
       headers['Authorization'] = `Bearer ${this.authConfig.token}`;
     } else if (this.authType === 'apikey-header') {
-      headers[this.authConfig.headerName || 'X-API-Key'] = this.authConfig.token;
+      // L2: Validate header name to prevent injection of sensitive headers
+      const BLOCKED_HEADERS = ['host', 'cookie', 'set-cookie', 'transfer-encoding', 'content-length'];
+      const headerName = this.authConfig.headerName || 'X-API-Key';
+      if (BLOCKED_HEADERS.includes(headerName.toLowerCase())) {
+        throw new Error(`Header name "${headerName}" is not allowed for authentication.`);
+      }
+      headers[headerName] = this.authConfig.token;
     }
     return headers;
   }
@@ -65,6 +71,7 @@ class CustomProvider extends BaseProvider {
         params: this._buildParams(params || {}),
         headers: this._buildHeaders(),
         auth: this._buildAuth(),
+        timeout: 30000,
       });
       return response.data;
     });

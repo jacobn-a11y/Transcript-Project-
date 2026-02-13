@@ -2,10 +2,13 @@ const http = require('http');
 
 const PORT = 3848; // Use a different port to avoid conflicts
 let serverReady = false;
+let authToken = '';
 
-function get(path) {
+function get(path, { skipAuth } = {}) {
   return new Promise((resolve, reject) => {
-    http.get(`http://127.0.0.1:${PORT}${path}`, (res) => {
+    const headers = {};
+    if (!skipAuth && authToken) headers['X-Auth-Token'] = authToken;
+    http.get(`http://127.0.0.1:${PORT}${path}`, { headers }, (res) => {
       let data = '';
       res.on('data', (c) => data += c);
       res.on('end', () => {
@@ -19,9 +22,14 @@ function get(path) {
 function post(path, body) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload),
+    };
+    if (authToken) headers['X-Auth-Token'] = authToken;
     const req = http.request(`http://127.0.0.1:${PORT}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+      headers,
     }, (res) => {
       let data = '';
       res.on('data', (c) => data += c);
@@ -38,8 +46,11 @@ function post(path, body) {
 
 function del(path) {
   return new Promise((resolve, reject) => {
+    const headers = {};
+    if (authToken) headers['X-Auth-Token'] = authToken;
     const req = http.request(`http://127.0.0.1:${PORT}${path}`, {
       method: 'DELETE',
+      headers,
     }, (res) => {
       let data = '';
       res.on('data', (c) => data += c);
@@ -63,6 +74,16 @@ async function ensureServer() {
   require(serverPath);
   // Wait for it to be ready
   await new Promise((resolve) => setTimeout(resolve, 500));
+  // Extract auth token from the HTML page (same as frontend does)
+  const html = await new Promise((resolve, reject) => {
+    http.get(`http://127.0.0.1:${PORT}/`, (res) => {
+      let data = '';
+      res.on('data', (c) => data += c);
+      res.on('end', () => resolve(data));
+    }).on('error', reject);
+  });
+  const match = html.match(/name="api-token"\s+content="([^"]+)"/);
+  authToken = match ? match[1] : '';
   serverReady = true;
 }
 
