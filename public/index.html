@@ -112,13 +112,13 @@
     <!-- STEP 2: Select Accounts -->
     <div id="step-2" class="card hidden">
       <h2>Step 2: Select Accounts / Companies</h2>
-      <p>Choose one or more accounts to merge. Duplicates across platforms can be selected together.</p>
+      <p>Choose accounts from each platform to merge. Select matching accounts across platforms to combine them.</p>
 
       <div style="margin-bottom: 12px;">
-        <input type="text" id="account-search" placeholder="Search accounts..." oninput="filterAccounts()">
+        <input type="text" id="account-search" placeholder="Search accounts across all platforms..." oninput="filterAccounts()">
       </div>
 
-      <div class="account-list" id="account-list">
+      <div id="account-groups">
         <div class="progress-text" style="padding: 20px; text-align: center;">Loading accounts...</div>
       </div>
 

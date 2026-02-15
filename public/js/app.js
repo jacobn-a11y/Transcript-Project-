@@ -143,8 +143,8 @@ async function testConnection(provider) {
 /* ============= Accounts ============= */
 
 async function fetchAccounts() {
-  const listEl = document.getElementById('account-list');
-  listEl.innerHTML = '<div class="progress-text" style="padding:20px;text-align:center;">Loading accounts from all providers...</div>';
+  const container = document.getElementById('account-groups');
+  container.innerHTML = '<div class="progress-text" style="padding:20px;text-align:center;">Loading accounts from all providers...</div>';
 
   try {
     const resp = await fetch(`${API}/api/accounts`);
@@ -153,32 +153,60 @@ async function fetchAccounts() {
     allAccounts = data.accounts || [];
     renderAccounts(allAccounts);
   } catch (e) {
-    listEl.innerHTML = `<div class="progress-text" style="padding:20px;text-align:center;color:var(--danger);">Error loading accounts: ${escapeHtml(e.message)}</div>`;
+    container.innerHTML = `<div class="progress-text" style="padding:20px;text-align:center;color:var(--danger);">Error loading accounts: ${escapeHtml(e.message)}</div>`;
   }
 }
 
 function renderAccounts(accounts) {
-  const listEl = document.getElementById('account-list');
+  const container = document.getElementById('account-groups');
 
   if (accounts.length === 0) {
-    listEl.innerHTML = '<div class="progress-text" style="padding:20px;text-align:center;">No accounts found.</div>';
+    container.innerHTML = '<div class="progress-text" style="padding:20px;text-align:center;">No accounts found.</div>';
     return;
   }
 
-  // Sort alphabetically
-  const sorted = [...accounts].sort((a, b) => a.name.localeCompare(b.name));
+  // Group accounts by source
+  const groups = {};
+  for (const acc of accounts) {
+    const source = acc.source || 'Unknown';
+    if (!groups[source]) groups[source] = [];
+    groups[source].push(acc);
+  }
 
-  listEl.innerHTML = sorted.map(acc => {
-    const key = acc.id + '|' + acc.source;
-    const checked = selectedAccountIds.has(key) ? 'checked' : '';
-    const badgeClass = acc.source.toLowerCase().includes('gong') ? 'badge-gong' :
-      acc.source.toLowerCase().includes('grain') ? 'badge-grain' : 'badge-custom';
+  // Sort each group alphabetically
+  for (const source in groups) {
+    groups[source].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Render order: Gong first, then Grain, then any custom providers
+  const preferred = ['Gong', 'Grain'];
+  const remaining = Object.keys(groups).filter(s => !preferred.includes(s)).sort();
+  const renderOrder = [...preferred.filter(s => groups[s]), ...remaining];
+
+  container.innerHTML = renderOrder.map(source => {
+    const accs = groups[source];
+    const badgeClass = source.toLowerCase().includes('gong') ? 'badge-gong' :
+      source.toLowerCase().includes('grain') ? 'badge-grain' : 'badge-custom';
+
     return `
-      <label class="account-item">
-        <input type="checkbox" ${checked} onchange="toggleAccount('${escapeAttr(key)}')">
-        <span>${escapeHtml(acc.name)}</span>
-        <span class="source-badge ${badgeClass}">${escapeHtml(acc.source)}</span>
-      </label>
+      <div class="provider-group">
+        <div class="provider-group-header">
+          <span class="source-badge ${badgeClass}">${escapeHtml(source)}</span>
+          <span class="provider-group-count">${accs.length} account${accs.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="account-list">
+          ${accs.map(acc => {
+            const key = acc.id + '|' + acc.source;
+            const checked = selectedAccountIds.has(key) ? 'checked' : '';
+            return `
+              <label class="account-item">
+                <input type="checkbox" ${checked} onchange="toggleAccount('${escapeAttr(key)}')">
+                <span>${escapeHtml(acc.name)}</span>
+              </label>
+            `;
+          }).join('')}
+        </div>
+      </div>
     `;
   }).join('');
 }

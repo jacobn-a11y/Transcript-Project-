@@ -8,7 +8,7 @@ Merge call transcripts from **Gong**, **Grain**, and other call recording platfo
 
 ## Download
 
-**Build the latest (v1.0.3)** on your Mac for best results:
+**Build the latest (v1.0.4)** on your Mac for best results:
 
 ```bash
 git clone <this-repo>
@@ -18,7 +18,7 @@ cd Transcript-Project-
 
 **Pre-built downloads:**
 
-- **[Linux (v1.0.3)](releases/Call-Transcript-Merger-1.0.3-linux.zip)** — Unzip, then run the `call-transcript-merger` executable.
+- **[Linux (v1.0.4)](releases/Call-Transcript-Merger-1.0.4-linux.zip)** — Unzip, then run the `call-transcript-merger` executable.
 - **[Mac (v1.0.2)](releases/Call-Transcript-Merger-1.0.2-mac.zip)** — Unzip and double-click the `.app` to run.
 
 > **First launch on Mac:** macOS blocks unsigned apps. Open Terminal and run:
