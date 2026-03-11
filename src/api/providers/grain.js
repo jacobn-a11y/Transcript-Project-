@@ -45,13 +45,14 @@ class GrainProvider extends BaseProvider {
     const recordings = await this._getAllRecordings();
 
     for (const rec of recordings) {
-      // Try to extract company from title patterns like "Company - Meeting" or "Meeting with Company"
       const title = rec.title || '';
+      let foundForThisRecording = false;
 
       // Extract participant companies if available in metadata
       if (rec.participants) {
         for (const p of rec.participants) {
           if (p.company) {
+            foundForThisRecording = true;
             const id = `company:${p.company.toLowerCase()}`;
             if (!accounts.has(id)) {
               accounts.set(id, { id, name: p.company, source: 'Grain' });
@@ -59,6 +60,7 @@ class GrainProvider extends BaseProvider {
           } else if (p.email) {
             const domain = p.email.split('@')[1];
             if (domain && !domain.match(/(gmail|yahoo|hotmail|outlook)\./)) {
+              foundForThisRecording = true;
               const name = domain.split('.')[0];
               const id = `domain:${domain}`;
               if (!accounts.has(id)) {
@@ -73,8 +75,8 @@ class GrainProvider extends BaseProvider {
         }
       }
 
-      // If no participant data, try to extract from title
-      if (accounts.size === 0 && title) {
+      // If this recording had no usable participant data, try title extraction
+      if (!foundForThisRecording && title) {
         // Common patterns: "Company - Topic", "Call with Company", "Company <> Us"
         const patterns = [
           /^(.+?)\s*[-–—]\s*/,

@@ -1,6 +1,6 @@
 {
   "name": "call-transcript-merger",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Merge call transcripts from Gong, Grain, and other call recording platforms into a single chronological Markdown document.",
   "author": "Call Transcript Merger",
   "main": "src/main/electron.js",
