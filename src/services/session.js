@@ -49,6 +49,7 @@ class SessionManager {
       providers: options.providers || [],
       selectedAccounts: options.selectedAccounts || [],
       primarySchema: options.primarySchema || 'gong',
+      sortMode: options.sortMode || 'chronological',
       progress: {
         phase: 'init',
         totalCalls: 0,

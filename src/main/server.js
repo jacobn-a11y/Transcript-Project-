@@ -227,20 +227,39 @@ app.get('/api/accounts', async (req, res) => {
 /* ============= Merge ============= */
 
 app.post('/api/merge/start', async (req, res) => {
-  const { projectName, selectedAccounts, primarySchema } = req.body;
+  const { projectName, selectedAccounts, primarySchema, sortMode, fetchAll } = req.body;
 
   if (!projectName || typeof projectName !== 'string') {
     return res.status(400).json({ error: 'projectName is required and must be a string.' });
   }
-  if (!Array.isArray(selectedAccounts) || selectedAccounts.length === 0) {
-    return res.status(400).json({ error: 'selectedAccounts must be a non-empty array.' });
+
+  // When fetchAll is true, we fetch all accounts from all providers instead of requiring selectedAccounts
+  let accountsToMerge = selectedAccounts;
+
+  if (fetchAll) {
+    // Fetch all accounts from all enabled providers
+    const allAccounts = [];
+    for (const [key, provider] of Object.entries(providers)) {
+      try {
+        const accounts = await provider.getAccounts();
+        allAccounts.push(...accounts);
+      } catch (e) {
+        console.error(`Error fetching accounts from ${key}:`, e.message);
+      }
+    }
+    accountsToMerge = allAccounts;
+  }
+
+  if (!Array.isArray(accountsToMerge) || accountsToMerge.length === 0) {
+    return res.status(400).json({ error: 'No accounts found. Enable at least one provider with accounts.' });
   }
 
   // Create session
   const session = sessionManager.create({
     projectName,
-    selectedAccounts,
+    selectedAccounts: accountsToMerge,
     primarySchema,
+    sortMode: sortMode || 'chronological',
     providers: Object.keys(providers),
   });
 
@@ -250,13 +269,13 @@ app.post('/api/merge/start', async (req, res) => {
   res.json({ sessionId: session.id });
 
   // Start async merge process
-  runMerge(session.id, selectedAccounts, projectName).catch(async (e) => {
+  runMerge(session.id, accountsToMerge, projectName, sortMode || 'chronological').catch(async (e) => {
     addLog(session.id, `Fatal error: ${e.message}`, 'error');
     await sessionManager.update(session.id, { status: 'error', error: e.message });
   });
 });
 
-async function runMerge(sessionId, selectedAccounts, projectName) {
+async function runMerge(sessionId, selectedAccounts, projectName, sortMode = 'chronological') {
   addLog(sessionId, 'Starting merge process...');
 
   // Check if we already have a call list from a previous run (resume case)
@@ -395,6 +414,7 @@ async function runMerge(sessionId, selectedAccounts, projectName) {
   const merger = new TranscriptMerger(finalSession.progress.completedDetails, {
     projectName,
     selectedAccounts,
+    sortMode,
   });
 
   const { markdown, wordCount } = merger.generate();
@@ -512,7 +532,7 @@ app.post('/api/merge/resume/:sessionId', async (req, res) => {
 
     // Restart merge from where it left off
     const session = sessionManager.load(sessionId);
-    runMerge(sessionId, session.selectedAccounts, session.projectName).catch(async (e) => {
+    runMerge(sessionId, session.selectedAccounts, session.projectName, session.sortMode || 'chronological').catch(async (e) => {
       addLog(sessionId, `Fatal error on resume: ${e.message}`, 'error');
       await sessionManager.update(sessionId, { status: 'error', error: e.message });
     });
@@ -542,6 +562,7 @@ app.get('/api/merge/download/:sessionId', (req, res) => {
       const merger = new TranscriptMerger(session.progress.completedDetails, {
         projectName: session.projectName,
         selectedAccounts: session.selectedAccounts,
+        sortMode: session.sortMode || 'chronological',
       });
       const { markdown } = merger.generate();
       fs.writeFileSync(resolvedPath, markdown, 'utf-8');
