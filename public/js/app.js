@@ -227,6 +227,44 @@ function filterAccounts() {
   renderAccounts(filtered);
 }
 
+/* ============= Fetch All Calls ============= */
+
+async function fetchAllCalls() {
+  const btn = document.getElementById('btn-fetch-all');
+  btn.disabled = true;
+  btn.textContent = 'Fetching all calls...';
+
+  const projectName = 'All Calls — By Account';
+
+  try {
+    const resp = await fetch(`${API}/api/merge/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectName,
+        selectedAccounts: [],
+        fetchAll: true,
+        sortMode: 'byAccount',
+        primarySchema: document.getElementById('primarySchema').value,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ error: `Server returned ${resp.status}` }));
+      throw new Error(err.error || 'Failed to start fetch all');
+    }
+    const data = await resp.json();
+    currentSessionId = data.sessionId;
+
+    goToStep(4);
+    startPolling();
+  } catch (e) {
+    toast(`Failed to fetch all: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Fetch All Calls';
+  }
+}
+
 /* ============= Merge Process ============= */
 
 async function startMerge() {

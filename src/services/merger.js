@@ -13,6 +13,7 @@ class TranscriptMerger {
     this.callDetails = callDetails;
     this.projectName = options.projectName || 'Call Transcripts';
     this.selectedAccounts = options.selectedAccounts || [];
+    this.sortMode = options.sortMode || 'chronological';
   }
 
   /**
@@ -20,10 +21,23 @@ class TranscriptMerger {
    * @returns {{ markdown: string, wordCount: number }}
    */
   generate() {
-    // Sort by date ascending
-    const sorted = [...this.callDetails].sort((a, b) => {
-      return new Date(a.date).getTime() - new Date(b.date).getTime();
-    });
+    let sorted;
+
+    if (this.sortMode === 'byAccount') {
+      // Sort alphabetically by account name, then by date within each account
+      sorted = [...this.callDetails].sort((a, b) => {
+        const accountA = (a.accountName || 'Unknown').toLowerCase();
+        const accountB = (b.accountName || 'Unknown').toLowerCase();
+        const cmp = accountA.localeCompare(accountB);
+        if (cmp !== 0) return cmp;
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+      });
+    } else {
+      // Default: sort by date ascending
+      sorted = [...this.callDetails].sort((a, b) => {
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+      });
+    }
 
     const lines = [];
 
@@ -34,12 +48,17 @@ class TranscriptMerger {
     lines.push(`**Total Calls:** ${sorted.length}`);
 
     if (this.selectedAccounts.length > 0) {
-      const accountNames = [...new Set(this.selectedAccounts.map(a => a.name))];
+      const accountNames = [...new Set(this.selectedAccounts.map(a => a.name))].sort();
       lines.push(`**Accounts:** ${accountNames.join(', ')}`);
     }
 
     const sources = [...new Set(sorted.map(c => c.source))];
     lines.push(`**Sources:** ${sources.join(', ')}`);
+
+    if (this.sortMode === 'byAccount') {
+      lines.push(`**Sort Order:** By account (alphabetical), then by date`);
+    }
+
     lines.push('');
     lines.push('---');
     lines.push('');
@@ -47,24 +66,59 @@ class TranscriptMerger {
     // Table of contents
     lines.push('## Table of Contents');
     lines.push('');
-    sorted.forEach((call, idx) => {
-      const num = idx + 1;
-      const dateStr = this._formatDate(call.date);
-      const safeTitle = this._sanitize(call.title);
-      const anchor = this._makeAnchor(num, call.title);
-      lines.push(`${num}. [${dateStr} — ${safeTitle}](#${anchor}) *(${this._sanitize(call.source)})*`);
-    });
+
+    if (this.sortMode === 'byAccount') {
+      // Group TOC by account
+      let currentAccount = null;
+      sorted.forEach((call, idx) => {
+        const accountName = call.accountName || 'Unknown';
+        if (accountName !== currentAccount) {
+          if (currentAccount !== null) lines.push('');
+          lines.push(`### ${this._sanitize(accountName)}`);
+          lines.push('');
+          currentAccount = accountName;
+        }
+        const num = idx + 1;
+        const dateStr = this._formatDate(call.date);
+        const safeTitle = this._sanitize(call.title);
+        const anchor = this._makeAnchor(num, call.title);
+        lines.push(`${num}. [${dateStr} — ${safeTitle}](#${anchor}) *(${this._sanitize(call.source)})*`);
+      });
+    } else {
+      sorted.forEach((call, idx) => {
+        const num = idx + 1;
+        const dateStr = this._formatDate(call.date);
+        const safeTitle = this._sanitize(call.title);
+        const anchor = this._makeAnchor(num, call.title);
+        lines.push(`${num}. [${dateStr} — ${safeTitle}](#${anchor}) *(${this._sanitize(call.source)})*`);
+      });
+    }
     lines.push('');
     lines.push('---');
     lines.push('');
 
-    // Each call
+    // Each call — render with account group headers in byAccount mode
+    let currentAccountHeader = null;
     sorted.forEach((call, idx) => {
       const num = idx + 1;
+
+      // In byAccount mode, insert account section headers
+      if (this.sortMode === 'byAccount') {
+        const accountName = call.accountName || 'Unknown';
+        if (accountName !== currentAccountHeader) {
+          if (currentAccountHeader !== null) {
+            lines.push('');
+          }
+          lines.push(`# ${this._sanitize(accountName)}`);
+          lines.push('');
+          currentAccountHeader = accountName;
+        }
+      }
+
       lines.push(`## ${num}. ${this._sanitize(call.title)}`);
       lines.push('');
 
-      // Metadata table
+      // Metadata table — include as much metadata as possible
       lines.push('| Field | Value |');
       lines.push('|-------|-------|');
       lines.push(`| **Date** | ${this._formatDate(call.date)} |`);
@@ -74,6 +128,12 @@ class TranscriptMerger {
       }
       if (call.duration) {
         lines.push(`| **Duration** | ${this._formatDuration(call.duration)} |`);
+      }
+      if (call.id) {
+        lines.push(`| **Call ID** | ${this._sanitize(String(call.id))} |`);
+      }
+      if (call.error) {
+        lines.push(`| **Error** | ${this._sanitize(call.error)} |`);
       }
       lines.push('');
 
