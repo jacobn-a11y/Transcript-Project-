@@ -105,6 +105,40 @@ class GrainProvider extends BaseProvider {
     return Array.from(accounts.values());
   }
 
+  /**
+   * Fetch ALL recordings in a single pass, extracting account names from metadata.
+   */
+  async getAllCalls(options = {}) {
+    const recordings = await this._getAllRecordings();
+    return recordings.map(rec => {
+      // Try to extract a company/account name from participants
+      let accountName = 'Unknown';
+      if (rec.participants) {
+        for (const p of rec.participants) {
+          if (p.company) {
+            accountName = p.company;
+            break;
+          } else if (p.email) {
+            const domain = p.email.split('@')[1];
+            if (domain && !domain.match(/(gmail|yahoo|hotmail|outlook)\./)) {
+              accountName = domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
+              break;
+            }
+          }
+        }
+      }
+
+      return {
+        id: rec.id,
+        title: rec.title || 'Untitled Recording',
+        date: rec.date || rec.created_at || rec.start_time || new Date().toISOString(),
+        accountId: 'all',
+        accountName,
+        source: 'Grain',
+      };
+    });
+  }
+
   async getCallsForAccount(accountId) {
     const recordings = await this._getAllRecordings();
     const calls = [];

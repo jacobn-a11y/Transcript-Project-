@@ -50,6 +50,7 @@ class SessionManager {
       selectedAccounts: options.selectedAccounts || [],
       primarySchema: options.primarySchema || 'gong',
       sortMode: options.sortMode || 'chronological',
+      fetchAll: options.fetchAll || false,
       progress: {
         phase: 'init',
         totalCalls: 0,

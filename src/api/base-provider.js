@@ -48,6 +48,15 @@ class BaseProvider {
   }
 
   /**
+   * Fetch ALL calls from this provider in a single pass (no account filtering).
+   * Returns: [{ id, title, date, accountId, accountName, source }]
+   * Default implementation falls back to getCallsForAccount('all').
+   */
+  async getAllCalls(options = {}) {
+    return this.getCallsForAccount('all', options);
+  }
+
+  /**
    * Fetch full call detail including transcript.
    * Returns: {
    *   id, title, date, duration,
