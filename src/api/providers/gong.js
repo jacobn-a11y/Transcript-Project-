@@ -184,6 +184,54 @@ class GongProvider extends BaseProvider {
   }
 
   /**
+   * Fetch ALL calls in a single pass, extracting account names from each call's metadata.
+   */
+  async getAllCalls(options = {}) {
+    const onProgress = (options && options.onProgress) || (() => {});
+    const calls = [];
+    let cursor = null;
+    let page = 0;
+    const now = new Date().toISOString();
+    const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString();
+
+    do {
+      page++;
+      onProgress(`Scanning all Gong calls (page ${page}, ${calls.length} calls so far)...`);
+
+      const payload = {
+        filter: { fromDateTime: threeYearsAgo, toDateTime: now },
+        contentSelector: {
+          context: 'Extended',
+          exposedFields: {
+            parties: true,
+            content: { brief: true },
+          },
+        },
+      };
+      if (cursor) payload.cursor = cursor;
+
+      const data = await this._request('post', '/calls/extensive', payload);
+
+      for (const call of (data.calls || [])) {
+        const accountName = this._getAccountNameFromCall(call, null);
+        calls.push({
+          id: call.metaData.id,
+          title: call.metaData.title || 'Untitled Call',
+          date: call.metaData.started,
+          duration: call.metaData.duration,
+          accountId: 'all',
+          accountName: accountName || 'Unknown',
+          source: 'Gong',
+        });
+      }
+
+      cursor = (data.records && data.records.cursor) || data.cursor || null;
+    } while (cursor);
+
+    return calls;
+  }
+
+  /**
    * Fetch full call detail with transcript, speakers, and summaries.
    */
   async getCallDetail(callId) {

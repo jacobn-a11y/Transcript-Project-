@@ -260,6 +260,7 @@ app.post('/api/merge/start', async (req, res) => {
     selectedAccounts: accountsToMerge,
     primarySchema,
     sortMode: sortMode || 'chronological',
+    fetchAll: !!fetchAll,
     providers: Object.keys(providers),
   });
 
@@ -269,13 +270,13 @@ app.post('/api/merge/start', async (req, res) => {
   res.json({ sessionId: session.id });
 
   // Start async merge process
-  runMerge(session.id, accountsToMerge, projectName, sortMode || 'chronological').catch(async (e) => {
+  runMerge(session.id, accountsToMerge, projectName, sortMode || 'chronological', !!fetchAll).catch(async (e) => {
     addLog(session.id, `Fatal error: ${e.message}`, 'error');
     await sessionManager.update(session.id, { status: 'error', error: e.message });
   });
 });
 
-async function runMerge(sessionId, selectedAccounts, projectName, sortMode = 'chronological') {
+async function runMerge(sessionId, selectedAccounts, projectName, sortMode = 'chronological', fetchAll = false) {
   addLog(sessionId, 'Starting merge process...');
 
   // Check if we already have a call list from a previous run (resume case)
@@ -291,41 +292,71 @@ async function runMerge(sessionId, selectedAccounts, projectName, sortMode = 'ch
       source: c.source,
       title: c.title,
       date: c.date,
-      accountName: '',
+      accountName: c.accountName || '',
     }));
   } else {
-    // Phase 1: Fetch call lists for all selected accounts
+    // Phase 1: Fetch call lists
     await sessionManager.updateProgress(sessionId, { phase: 'fetching_calls' });
-    addLog(sessionId, 'Fetching call lists from all providers...');
 
     const allCalls = [];
 
-    for (const account of selectedAccounts) {
-      if (mergeAbort[sessionId]) {
-        addLog(sessionId, 'Paused during call list fetch.', 'warn');
-        return;
-      }
+    if (fetchAll) {
+      // Fetch ALL calls from each provider in a single pass
+      addLog(sessionId, 'Fetching all calls from all providers (single pass)...');
 
-      const provider = findProviderForSource(account.source);
-      if (!provider) {
-        addLog(sessionId, `No provider found for source: ${account.source}`, 'warn');
-        continue;
-      }
-
-      try {
-        addLog(sessionId, `Fetching calls for "${account.name}" from ${account.source}...`);
-        const calls = await provider.getCallsForAccount(account.id, {
-          onProgress: (msg) => addLog(sessionId, msg),
-        });
-        addLog(sessionId, `Found ${calls.length} calls for "${account.name}"`, 'success');
-        allCalls.push(...calls);
-      } catch (e) {
-        if (isRateLimitError(e)) {
-          addLog(sessionId, `Rate limit hit fetching calls for "${account.name}". Pausing session.`, 'warn');
-          await sessionManager.pause(sessionId, `Rate limit reached. ${e.message}`);
+      for (const [key, provider] of Object.entries(providers)) {
+        if (mergeAbort[sessionId]) {
+          addLog(sessionId, 'Paused during call list fetch.', 'warn');
           return;
         }
-        addLog(sessionId, `Error fetching calls for "${account.name}": ${e.message}`, 'error');
+
+        try {
+          addLog(sessionId, `Fetching all calls from ${key}...`);
+          const calls = await provider.getAllCalls({
+            onProgress: (msg) => addLog(sessionId, msg),
+          });
+          addLog(sessionId, `Found ${calls.length} calls from ${key}`, 'success');
+          allCalls.push(...calls);
+        } catch (e) {
+          if (isRateLimitError(e)) {
+            addLog(sessionId, `Rate limit hit fetching calls from ${key}. Pausing session.`, 'warn');
+            await sessionManager.pause(sessionId, `Rate limit reached. ${e.message}`);
+            return;
+          }
+          addLog(sessionId, `Error fetching calls from ${key}: ${e.message}`, 'error');
+        }
+      }
+    } else {
+      // Fetch calls per selected account
+      addLog(sessionId, 'Fetching call lists from all providers...');
+
+      for (const account of selectedAccounts) {
+        if (mergeAbort[sessionId]) {
+          addLog(sessionId, 'Paused during call list fetch.', 'warn');
+          return;
+        }
+
+        const provider = findProviderForSource(account.source);
+        if (!provider) {
+          addLog(sessionId, `No provider found for source: ${account.source}`, 'warn');
+          continue;
+        }
+
+        try {
+          addLog(sessionId, `Fetching calls for "${account.name}" from ${account.source}...`);
+          const calls = await provider.getCallsForAccount(account.id, {
+            onProgress: (msg) => addLog(sessionId, msg),
+          });
+          addLog(sessionId, `Found ${calls.length} calls for "${account.name}"`, 'success');
+          allCalls.push(...calls);
+        } catch (e) {
+          if (isRateLimitError(e)) {
+            addLog(sessionId, `Rate limit hit fetching calls for "${account.name}". Pausing session.`, 'warn');
+            await sessionManager.pause(sessionId, `Rate limit reached. ${e.message}`);
+            return;
+          }
+          addLog(sessionId, `Error fetching calls for "${account.name}": ${e.message}`, 'error');
+        }
       }
     }
 
@@ -338,12 +369,13 @@ async function runMerge(sessionId, selectedAccounts, projectName, sortMode = 'ch
       return true;
     });
 
-    // Update session with call list
+    // Update session with call list (include accountName for fetchAll mode)
     callsList = uniqueCalls.map(c => ({
       id: c.id,
       source: c.source,
       title: c.title,
       date: c.date,
+      accountName: c.accountName || '',
       status: 'pending',
     }));
 
@@ -396,6 +428,7 @@ async function runMerge(sessionId, selectedAccounts, projectName, sortMode = 'ch
         title: call.title,
         date: call.date,
         source: call.source,
+        accountName: call.accountName || '',
         speakers: [],
         summary: '',
         outline: '',
@@ -532,7 +565,7 @@ app.post('/api/merge/resume/:sessionId', async (req, res) => {
 
     // Restart merge from where it left off
     const session = sessionManager.load(sessionId);
-    runMerge(sessionId, session.selectedAccounts, session.projectName, session.sortMode || 'chronological').catch(async (e) => {
+    runMerge(sessionId, session.selectedAccounts, session.projectName, session.sortMode || 'chronological', !!session.fetchAll).catch(async (e) => {
       addLog(sessionId, `Fatal error on resume: ${e.message}`, 'error');
       await sessionManager.update(sessionId, { status: 'error', error: e.message });
     });
