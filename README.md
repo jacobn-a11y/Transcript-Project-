@@ -3,7 +3,32 @@
 <p align="center">
   <img src="build/icon.png" alt="Noo-noo app icon" width="128">
 </p>
+Gong & Grain Transcript Merger
 
+An Electron desktop application that consolidates customer-call transcripts from Gong, Grain, and configurable API providers into chronological Markdown exports.
+
+The application handles provider-specific discovery, transcript retrieval, rate-limited requests, session persistence, and resumable processing.
+
+Engineering highlights
+
+* Provider abstraction: Separate adapters for Gong, Grain, and custom APIs.
+* Resumable processing: Session persistence supports interrupted or paused merges.
+* API reliability: Rate limiting and provider-specific error handling.
+* Structured exports: Chronological transcripts with call metadata and account grouping.
+* Desktop packaging: Electron builds for supported platforms.
+
+Testing
+
+The repository includes tests for provider behavior, merging, rate limiting, server functionality, and session management.
+
+npm install
+npm test
+
+Architecture and limitations
+
+See the existing implementation documentation and SECURITY_AUDIT.md for identified reliability and security concerns.
+
+Status: Version 1.0.4 with packaged application builds. Live provider-integration verification should be documented separately.
 Merge call transcripts from **Gong**, **Grain**, and other call recording platforms into a single chronological Markdown document.
 
 ## Download
