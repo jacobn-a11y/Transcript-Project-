@@ -1,8 +1,10 @@
 # Call Transcript Merger
 
+
 <p align="center">
   <img src="build/icon.png" alt="Noo-noo app icon" width="128">
 </p>
+
 Gong & Grain Transcript Merger
 
 An Electron desktop application that consolidates customer-call transcripts from Gong, Grain, and configurable API providers into chronological Markdown exports.
